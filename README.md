@@ -1,1 +1,0 @@
-# rally-to-jira
