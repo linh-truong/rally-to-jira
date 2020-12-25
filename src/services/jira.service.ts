@@ -3,12 +3,12 @@ import axios, { AxiosInstance } from "axios";
 import { JiraConfig } from "../container";
 
 interface CreateScrumProjectInput {
-  description?: string;
-  projectTemplateKey: string;
   name: string;
-  assigneeType: string;
-  projectTypeKey: string;
   key: string;
+  description?: string;
+  assigneeType?: string;
+  projectTemplateKey?: string;
+  projectTypeKey?: string;
 }
 
 class JiraService {
@@ -31,9 +31,14 @@ class JiraService {
     return data;
   };
 
-  createProjectProject = async (input: CreateScrumProjectInput) => {
+  createProject = async (input: CreateScrumProjectInput) => {
     const { data } = await this.client.post("project", {
       ...input,
+      projectTypeKey: input.projectTypeKey || "software", // https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-projects/#api-rest-api-3-project-post
+      projectTemplateKey:
+        input.projectTemplateKey ||
+        "com.pyxis.greenhopper.jira:gh-simplified-agility-scrum",
+      assigneeType: input.assigneeType || "UNASSIGNED",
       leadAccountId: this.jiraConfig.leadAccountId,
     });
     return data;
