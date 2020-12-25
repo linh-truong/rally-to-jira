@@ -3,6 +3,44 @@ import _ from "lodash";
 
 import { RallyConfig } from "../container";
 
+interface Project {
+  _ref: string;
+  _refObjectUUID: string;
+  _objectVersion: string;
+  _refObjectName: string;
+  CreationDate: Date;
+  _CreatedAt: string;
+  ObjectID: number;
+  ObjectUUID: string;
+  VersionId: string;
+  Children: {
+    _ref: string;
+    _type: string;
+    Count: number;
+  };
+  Description: string;
+  Iterations: {
+    _ref: string;
+    _type: string;
+    Count: number;
+  };
+  Name: string;
+  Notes: string;
+  Owner: User;
+  Releases: {
+    _ref: string;
+    _type: string;
+    Count: number;
+  };
+  SchemaVersion: string;
+  State: string;
+  TeamMembers: {
+    _ref: string;
+    _type: string;
+    Count: number;
+  };
+}
+
 interface User {
   _ref: string;
   _refObjectUUID: string;
@@ -112,15 +150,38 @@ interface Attachment {
   Description?: any;
   Name: string;
   Size: number;
+  FlowState: {
+    _ref: string;
+    _refObjectUUID: string;
+    _refObjectName: string;
+  };
 }
 
 interface CustomAttachment extends Attachment {
   Base64BiraryContent: string;
 }
 
+interface FlowState {
+  _ref: string;
+  _refObjectUUID: string;
+  _objectVersion: string;
+  _refObjectName: string;
+  CreationDate: Date;
+  ObjectID: number;
+  ObjectUUID: string;
+  VersionId: string;
+  AgeThreshold?: any;
+  ExitPolicy?: any;
+  Name: string;
+  OrderIndex: number;
+  ScheduleStateMapping: string;
+  WIPLimit: number;
+}
+
 class RallyService {
   rallyConfig: RallyConfig;
   client: AxiosInstance;
+  maxPageSize = 2000;
 
   constructor(options: { rallyConfig: RallyConfig }) {
     this.rallyConfig = options.rallyConfig;
@@ -138,7 +199,7 @@ class RallyService {
     pagesize = 50,
   }: {
     resourceName: string;
-    fetch: boolean | string;
+    fetch?: boolean | string;
     pagesize?: number;
   }) => {
     let records: T[] = [];
@@ -218,6 +279,27 @@ class RallyService {
       };
     }>(refLink, { baseURL: undefined });
     return data.AttachmentContent.Content;
+  };
+
+  getProject = async () => {
+    const { data } = await this.client.get<{
+      Project: Project;
+    }>(`project/${this.rallyConfig.projectId}`, {
+      params: {
+        fetch: true,
+        projectScopeUp: false,
+        projectScopeDown: false,
+      },
+    });
+    return data.Project;
+  };
+
+  scanFlowState = async () => {
+    const records = await this.scanResource<FlowState>({
+      resourceName: "flowstate",
+      pagesize: this.maxPageSize,
+    });
+    return records;
   };
 }
 
