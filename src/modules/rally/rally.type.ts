@@ -105,8 +105,10 @@ export interface Artifact {
   HasParent: boolean;
   InProgressDate?: any;
   Iteration?: any;
-  Parent?: any;
-  PlanEstimate: number;
+  Parent?: {
+    _ref: string;
+  };
+  PlanEstimate?: number;
   Predecessors: {
     _ref: string;
     Count: number;
@@ -128,6 +130,12 @@ export interface Artifact {
   TestCaseStatus?: any;
   TestCases: {
     _ref: string;
+    Count: number;
+  };
+  WorkProduct?: {
+    _ref: string;
+  };
+  DefectSuites?: {
     Count: number;
   };
   _type: string;

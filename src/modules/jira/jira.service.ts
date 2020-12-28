@@ -1,6 +1,11 @@
 import axios, { AxiosInstance } from "axios";
 
-import { JiraConfig, ProjectIssueType, WorkflowStatus } from "./jira.type";
+import {
+  IssueField,
+  JiraConfig,
+  ProjectIssueType,
+  WorkflowStatus,
+} from "./jira.type";
 
 export const defaultWorkflowStatusNames = {
   todo: "To do",
@@ -46,6 +51,7 @@ interface CreateIssueInput {
       }[];
     };
     labels: string[];
+    [field: string]: any;
   };
 }
 
@@ -121,13 +127,12 @@ export class JiraService {
     return data;
   };
 
-  getWorkflowStatusesByProjectId = async (projectId: number) => {
+  getWorkflowStatusesByProjectId = async (projectId: string) => {
     const { data } = await this.client.get<WorkflowStatus[]>("status");
-    const projectIdInString = projectId.toString();
-    return data.filter((item) => item.scope.project.id === projectIdInString);
+    return data.filter((item) => item.scope.project.id === projectId);
   };
 
-  getIssueTypesByProjectId = async (projectId: number) => {
+  getIssueTypesByProjectId = async (projectId: string) => {
     const { data } = await this.client.get<{
       projects: {
         self: string;
@@ -137,11 +142,13 @@ export class JiraService {
         issuetypes: ProjectIssueType[];
       }[];
     }>("issue/createmeta");
-    const projectIdInString = projectId.toString();
-    const targetProject = data.projects.find(
-      (item) => item.id === projectIdInString
-    );
+    const targetProject = data.projects.find((item) => item.id === projectId);
     return targetProject?.issuetypes || [];
+  };
+
+  getIssueFields = async () => {
+    const { data } = await this.client.get<IssueField[]>("field");
+    return data;
   };
 
   bulkCreateIssue = async (input: BulkCreateIssueInput) => {

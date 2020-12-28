@@ -146,12 +146,12 @@ export class RallyService {
     const hierarchicalRequirements =
       artifactsByType["HierarchicalRequirement"] || [];
     const epics: Artifact[] = [];
-    const userStories: Artifact[] = [];
+    const stories: Artifact[] = [];
     hierarchicalRequirements.forEach((hr) => {
       if (hr.Children?.Count) {
         epics.push(hr);
       } else {
-        userStories.push(hr);
+        stories.push(hr);
       }
     });
     return {
@@ -159,7 +159,7 @@ export class RallyService {
       testCases,
       defects,
       defectSuites,
-      userStories,
+      stories,
       epics,
     };
   };

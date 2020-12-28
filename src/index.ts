@@ -7,8 +7,7 @@ const main = async () => {
   const logger = container.cradle.logger;
   try {
     const app = container.cradle.app;
-    const result = await app.run();
-    logger.info(result);
+    await app.run();
   } catch (err) {
     logger.error(err);
   }

@@ -4,10 +4,22 @@ import { customAlphabet } from "nanoid";
 import { Artifact, RallyService } from "./modules/rally";
 import { JiraService } from "./modules/jira";
 
+type JiraIssueByRallyArtifactRef = Record<
+  string,
+  { id: string; key: string; self: string }
+>;
+
+interface JiraMigrationConfig {
+  projectId: string;
+  issueTypeByName: { [name: string]: string };
+  issueFieldByName: { [name: string]: string };
+}
+
 class App {
   jiraService: JiraService;
   rallyService: RallyService;
   idGenerator = customAlphabet("1234567890", 7);
+  jiraIssueByRallyArtifactRef: JiraIssueByRallyArtifactRef = {};
 
   constructor(opts: { jiraService: JiraService; rallyService: RallyService }) {
     this.jiraService = opts.jiraService;
@@ -23,64 +35,215 @@ class App {
     return result;
   };
 
-  migrateEpic = async (input: {
+  buildJiraMigrationConfig = async (jiraProjectId: string) => {
+    const [jiraIssueTypes, jiraIssueFields] = await Promise.all([
+      this.jiraService.getIssueTypesByProjectId(jiraProjectId),
+      this.jiraService.getIssueFields(),
+    ]);
+    const jiraMigrationConfig: JiraMigrationConfig = {
+      projectId: jiraProjectId,
+      issueTypeByName: _.chain(jiraIssueTypes)
+        .keyBy((item) => item.name)
+        .mapValues((item) => item.id)
+        .value(),
+      issueFieldByName: _.chain(jiraIssueFields)
+        .keyBy((item) => item.name)
+        .mapValues((item) => item.id)
+        .value(),
+    };
+    return jiraMigrationConfig;
+  };
+
+  migrateJiraEpics = async (input: {
     rallyArtifacts: Artifact[];
-    jiraEpicTypeId: string;
-    jiraProjectId: string | number;
+    jiraMigrationConfig: JiraMigrationConfig;
   }) => {
-    const { issues } = await this.jiraService.bulkCreateIssue(
-      input.rallyArtifacts.map((epic) => ({
+    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+      input.rallyArtifacts.map((artifact) => ({
         fields: {
-          summary: epic.Name,
-          issuetype: { id: input.jiraEpicTypeId },
-          project: { id: input.jiraProjectId.toString() },
+          summary: artifact.Name,
+          issuetype: { id: input.jiraMigrationConfig.issueTypeByName["Epic"] },
+          project: { id: input.jiraMigrationConfig.projectId },
           description: {
             type: "doc",
             version: 1,
             content: [
               {
                 type: "paragraph",
-                content: [{ text: epic.Description, type: "text" }],
+                content: [{ text: artifact.Description, type: "text" }],
               },
             ],
           },
-          labels: (epic.Tags?._tagsNameArray || []).map((tag) =>
+          labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
             tag.Name.replace(" ", "")
           ),
         },
       }))
     );
-    const jiraIssueByRallyArtifactRef: Record<
-      string,
-      { id: string; key: string; self: string }
-    > = {};
+    if (errors && errors.length) {
+      throw new Error(JSON.stringify(errors));
+    }
     input.rallyArtifacts.forEach((item, itemIndex) => {
-      jiraIssueByRallyArtifactRef[item._ref] = issues[itemIndex];
+      this.jiraIssueByRallyArtifactRef[item._ref] = issues[itemIndex];
     });
-    return jiraIssueByRallyArtifactRef;
+    return issues;
+  };
+
+  migrateJiraBugs = async (input: {
+    rallyArtifacts: Artifact[];
+    jiraMigrationConfig: JiraMigrationConfig;
+  }) => {
+    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+      input.rallyArtifacts.map((artifact) => ({
+        fields: {
+          summary: artifact.Name,
+          issuetype: { id: input.jiraMigrationConfig.issueTypeByName["Bug"] },
+          project: { id: input.jiraMigrationConfig.projectId },
+          description: {
+            type: "doc",
+            version: 1,
+            content: [
+              {
+                type: "paragraph",
+                content: [{ text: artifact.Description, type: "text" }],
+              },
+            ],
+          },
+          labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
+            tag.Name.replace(" ", "")
+          ),
+        },
+      }))
+    );
+    if (errors && errors.length) {
+      throw new Error(JSON.stringify(errors));
+    }
+    input.rallyArtifacts.forEach((item, itemIndex) => {
+      this.jiraIssueByRallyArtifactRef[item._ref] = issues[itemIndex];
+    });
+    return issues;
+  };
+
+  migrateStories = async (input: {
+    rallyArtifacts: Artifact[];
+    jiraMigrationConfig: JiraMigrationConfig;
+  }) => {
+    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+      input.rallyArtifacts.map((artifact) => ({
+        fields: {
+          summary: artifact.Name,
+          issuetype: { id: input.jiraMigrationConfig.issueTypeByName["Story"] },
+          project: { id: input.jiraMigrationConfig.projectId },
+          description: {
+            type: "doc",
+            version: 1,
+            content: [
+              {
+                type: "paragraph",
+                content: [{ text: artifact.Description, type: "text" }],
+              },
+            ],
+          },
+          labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
+            tag.Name.replace(" ", "")
+          ),
+          parent: this.jiraIssueByRallyArtifactRef[artifact.Parent?._ref]?.key
+            ? {
+                key: this.jiraIssueByRallyArtifactRef[artifact.Parent?._ref]
+                  ?.key,
+              }
+            : undefined,
+        },
+      }))
+    );
+    if (errors && errors.length) {
+      throw new Error(JSON.stringify(errors));
+    }
+    input.rallyArtifacts.forEach((item, itemIndex) => {
+      this.jiraIssueByRallyArtifactRef[item._ref] = issues[itemIndex];
+    });
+    return issues;
+  };
+
+  migrateSubtasks = async (input: {
+    rallyArtifacts: Artifact[];
+    jiraMigrationConfig: JiraMigrationConfig;
+  }) => {
+    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+      input.rallyArtifacts.map((artifact) => ({
+        fields: {
+          summary: artifact.Name,
+          issuetype: {
+            id: input.jiraMigrationConfig.issueTypeByName["Subtask"],
+          },
+          project: { id: input.jiraMigrationConfig.projectId },
+          description: {
+            type: "doc",
+            version: 1,
+            content: [
+              {
+                type: "paragraph",
+                content: [{ text: artifact.Description, type: "text" }],
+              },
+            ],
+          },
+          labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
+            tag.Name.replace(" ", "")
+          ),
+          parent: this.jiraIssueByRallyArtifactRef[artifact.WorkProduct?._ref]
+            ?.key
+            ? {
+                key: this.jiraIssueByRallyArtifactRef[
+                  artifact.WorkProduct?._ref
+                ]?.key,
+              }
+            : undefined,
+        },
+      }))
+    );
+    if (errors && errors.length) {
+      throw new Error(JSON.stringify(errors));
+    }
+    input.rallyArtifacts.forEach((item, itemIndex) => {
+      this.jiraIssueByRallyArtifactRef[item._ref] = issues[itemIndex];
+    });
+    return issues;
   };
 
   run = async () => {
     await this.jiraService.cleanUpProjects();
     const { id: jiraProjectId } = await this.migrateProject();
-    const [rallyArtifacts, issueTypes] = await Promise.all([
-      this.rallyService.scanArtifact(),
-      this.jiraService.getIssueTypesByProjectId(jiraProjectId),
-    ]);
+    const jiraProjectIdInString = jiraProjectId.toString();
+    const jiraMigrationConfig = await this.buildJiraMigrationConfig(
+      jiraProjectIdInString
+    );
+
+    const rallyArtifacts = await this.rallyService.scanArtifact();
     const classifiedRallyArtifacts = this.rallyService.classifyArtifacts(
       rallyArtifacts
     );
-    const jiraIssueTypeByName = _.keyBy(issueTypes, (item) => item.name);
 
-    const result = await this.migrateEpic({
-      rallyArtifacts: [
-        ...classifiedRallyArtifacts.epics,
-        ...classifiedRallyArtifacts.defectSuites,
-      ],
-      jiraEpicTypeId: jiraIssueTypeByName["Epic"].id,
-      jiraProjectId,
+    await this.migrateJiraEpics({
+      rallyArtifacts: classifiedRallyArtifacts.epics,
+      jiraMigrationConfig,
     });
-    return result;
+    await this.migrateJiraBugs({
+      rallyArtifacts: [
+        ...classifiedRallyArtifacts.defectSuites,
+        ...classifiedRallyArtifacts.defects.filter(
+          (defect) => !defect.DefectSuites || !defect.DefectSuites.Count
+        ),
+      ],
+      jiraMigrationConfig,
+    });
+    await this.migrateStories({
+      rallyArtifacts: classifiedRallyArtifacts.stories,
+      jiraMigrationConfig,
+    });
+    await this.migrateSubtasks({
+      rallyArtifacts: classifiedRallyArtifacts.tasks,
+      jiraMigrationConfig,
+    });
   };
 }
 
