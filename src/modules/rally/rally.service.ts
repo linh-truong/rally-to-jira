@@ -1,184 +1,19 @@
 import axios, { AxiosInstance } from "axios";
 import _ from "lodash";
 
-import { RallyConfig } from "../container";
-
-interface Project {
-  _ref: string;
-  _refObjectUUID: string;
-  _objectVersion: string;
-  _refObjectName: string;
-  CreationDate: Date;
-  _CreatedAt: string;
-  ObjectID: number;
-  ObjectUUID: string;
-  VersionId: string;
-  Children: {
-    _ref: string;
-    _type: string;
-    Count: number;
-  };
-  Description: string;
-  Iterations: {
-    _ref: string;
-    _type: string;
-    Count: number;
-  };
-  Name: string;
-  Notes: string;
-  Owner: User;
-  Releases: {
-    _ref: string;
-    _type: string;
-    Count: number;
-  };
-  SchemaVersion: string;
-  State: string;
-  TeamMembers: {
-    _ref: string;
-    _type: string;
-    Count: number;
-  };
-}
-
-interface User {
-  _ref: string;
-  _refObjectUUID: string;
-  _refObjectName: string;
-}
-
-interface Artifact {
-  _ref: string;
-  _refObjectUUID: string;
-  _objectVersion: string;
-  _refObjectName: string;
-  CreationDate: Date;
-  ObjectID: number;
-  ObjectUUID: string;
-  VersionId: string;
-  CreatedBy: User;
-  Description: string;
-  DisplayColor: string;
-  Expedite: boolean;
-  FormattedID: string;
-  LastUpdateDate: Date;
-  Name: string;
-  Notes: string;
-  Owner: User;
-  Ready: boolean;
-  Tags: {
-    _ref: string;
-    _tagsNameArray: string[];
-    Count: number;
-  };
-  FlowState: {
-    _ref: string;
-    _refObjectUUID: string;
-    _refObjectName: string;
-  };
-  FlowStateChangedDate: Date;
-  ScheduleState: string;
-  ScheduleStatePrefix: string;
-  TestCaseCount: number;
-  Attachments: {
-    _ref: string;
-    Count: number;
-  };
-  AcceptedDate?: any;
-  Blocked: boolean;
-  BlockedReason?: any;
-  Blocker?: any;
-  Children: {
-    _ref: string;
-    Count: number;
-  };
-  DefectStatus?: any;
-  Defects: {
-    _ref: string;
-    Count: number;
-  };
-  DirectChildrenCount: number;
-  DragAndDropRank: string;
-  HasParent: boolean;
-  InProgressDate?: any;
-  Iteration?: any;
-  Parent?: any;
-  PlanEstimate: number;
-  Predecessors: {
-    _ref: string;
-    Count: number;
-  };
-  Recycled: boolean;
-  Release?: any;
-  Successors: {
-    _ref: string;
-    Count: number;
-  };
-  TaskActualTotal: number;
-  TaskEstimateTotal: number;
-  TaskRemainingTotal: number;
-  TaskStatus?: any;
-  Tasks: {
-    _ref: string;
-    Count: number;
-  };
-  TestCaseStatus?: any;
-  TestCases: {
-    _ref: string;
-    Count: number;
-  };
-}
-
-interface Attachment {
-  _ref: string;
-  _refObjectUUID: string;
-  _objectVersion: string;
-  _refObjectName: string;
-  CreationDate: Date;
-  ObjectID: number;
-  ObjectUUID: string;
-  Artifact: {
-    _ref: string;
-    _refObjectUUID: string;
-    _refObjectName: string;
-  };
-  Content: {
-    _ref: string;
-    _refObjectUUID: string;
-  };
-  ContentType: string;
-  Description?: any;
-  Name: string;
-  Size: number;
-  FlowState: {
-    _ref: string;
-    _refObjectUUID: string;
-    _refObjectName: string;
-  };
-}
+import {
+  Attachment,
+  Project,
+  FlowState,
+  RallyConfig,
+  Artifact,
+} from "./rally.type";
 
 interface CustomAttachment extends Attachment {
   Base64BiraryContent: string;
 }
 
-interface FlowState {
-  _ref: string;
-  _refObjectUUID: string;
-  _objectVersion: string;
-  _refObjectName: string;
-  CreationDate: Date;
-  ObjectID: number;
-  ObjectUUID: string;
-  VersionId: string;
-  AgeThreshold?: any;
-  ExitPolicy?: any;
-  Name: string;
-  OrderIndex: number;
-  ScheduleStateMapping: string;
-  WIPLimit: number;
-}
-
-class RallyService {
+export class RallyService {
   rallyConfig: RallyConfig;
   client: AxiosInstance;
   maxPageSize = 2000;
@@ -301,6 +136,31 @@ class RallyService {
     });
     return records;
   };
-}
 
-export default RallyService;
+  classifyArtifacts = (artifacts: Artifact[]) => {
+    const artifactsByType = _.groupBy(artifacts, (artifact) => artifact._type);
+    const tasks = artifactsByType["Task"] || [];
+    const testCases = artifactsByType["TestCase"] || [];
+    const defects = artifactsByType["Defect"] || [];
+    const defectSuites = artifactsByType["DefectSuite"] || [];
+    const hierarchicalRequirements =
+      artifactsByType["HierarchicalRequirement"] || [];
+    const epics: Artifact[] = [];
+    const userStories: Artifact[] = [];
+    hierarchicalRequirements.forEach((hr) => {
+      if (hr.Children?.Count) {
+        epics.push(hr);
+      } else {
+        userStories.push(hr);
+      }
+    });
+    return {
+      tasks,
+      testCases,
+      defects,
+      defectSuites,
+      userStories,
+      epics,
+    };
+  };
+}

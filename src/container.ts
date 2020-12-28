@@ -1,24 +1,13 @@
 import { createContainer, InjectionMode, asValue, asClass } from "awilix";
 
-import logger from "./services/logger.service";
-import RallyService from "./services/rally.service";
-import JiraService from "./services/jira.service";
-
-export interface RallyConfig {
-  apiBaseURL: string;
-  apiKey: string;
-  projectId: string;
-}
-
-export interface JiraConfig {
-  apiBaseURL: string;
-  username: string;
-  apiToken: string;
-  leadAccountId: string;
-}
+import { JiraConfig, JiraService } from "./modules/jira";
+import { RallyConfig, RallyService } from "./modules/rally";
+import { logger } from "./modules/shared";
+import App from "./app";
 
 interface ICradle {
   logger: typeof logger;
+  app: App;
   rallyConfig: RallyConfig;
   rallyService: RallyService;
   jiraConfig: JiraConfig;
@@ -31,6 +20,7 @@ const container = createContainer<ICradle>({
 
 container.register({
   logger: asValue(logger),
+  app: asClass(App),
   rallyConfig: asValue({
     apiBaseURL: process.env.RALLY_API_BASE_URL,
     apiKey: process.env.RALLY_API_KEY,

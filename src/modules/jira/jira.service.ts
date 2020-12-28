@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from "axios";
 
-import { JiraConfig } from "../container";
+import { JiraConfig, ProjectIssueType, WorkflowStatus } from "./jira.type";
 
 export const defaultWorkflowStatusNames = {
   todo: "To do",
@@ -15,27 +15,6 @@ export const defaultIssueTypeNames = {
   epic: "Epic",
   subtask: "Subtask",
 };
-
-interface WorkflowStatus {
-  self: string;
-  description: string;
-  iconUrl: string;
-  name: string;
-  id: string;
-  statusCategory: {
-    self: string;
-    id: number;
-    key: string;
-    colorName: string;
-    name: string;
-  };
-  scope: {
-    type: string;
-    project: {
-      id: string;
-    };
-  };
-}
 
 interface CreateProjectInput {
   name: string;
@@ -72,7 +51,7 @@ interface CreateIssueInput {
 
 type BulkCreateIssueInput = CreateIssueInput[];
 
-interface BulkCreateIssueOutput {
+export interface BulkCreateIssueOutput {
   issues: {
     id: string;
     key: string;
@@ -88,7 +67,7 @@ interface BulkCreateIssueOutput {
   errors: any[];
 }
 
-class JiraService {
+export class JiraService {
   jiraConfig: JiraConfig;
   client: AxiosInstance;
 
@@ -104,7 +83,7 @@ class JiraService {
   }
 
   getAllProjects = async () => {
-    const { data } = await this.client.get("project");
+    const { data } = await this.client.get<{ id: string }[]>("project");
     return data;
   };
 
@@ -125,6 +104,18 @@ class JiraService {
     return data;
   };
 
+  deleteProject = async (projectId: string) => {
+    const { data } = await this.client.delete(`project/${projectId}`);
+    return data;
+  };
+
+  cleanUpProjects = async () => {
+    const projects = await this.getAllProjects();
+    await Promise.all(
+      projects.map((project) => this.deleteProject(project.id))
+    );
+  };
+
   getAllWorkflowStatuses = async () => {
     const { data } = await this.client.get<WorkflowStatus[]>("status");
     return data;
@@ -143,23 +134,7 @@ class JiraService {
         id: string;
         key: string;
         name: string;
-        issuetypes: {
-          self: string;
-          id: string;
-          description: string;
-          iconUrl: string;
-          name: string;
-          subtask: boolean;
-          fields: {
-            issuetype: {
-              required: boolean;
-              name: string;
-              key: string;
-              hasDefaultValue: boolean;
-              operations: string[];
-            };
-          };
-        }[];
+        issuetypes: ProjectIssueType[];
       }[];
     }>("issue/createmeta");
     const projectIdInString = projectId.toString();
@@ -182,5 +157,3 @@ class JiraService {
     return data;
   };
 }
-
-export default JiraService;
