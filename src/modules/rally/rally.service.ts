@@ -121,11 +121,25 @@ export class RallyService {
       QueryResult: {
         Errors: any[];
         Warnings: any[];
-        Results: {
-          _ref: string;
-          ObjectID: string;
-          ObjectUUID: string;
-        }[];
+        Results: { _ref: string }[];
+      };
+    }>(refLink, {
+      baseURL: undefined,
+      params: {
+        pagesize: this.maxPageSize,
+        projectScopeUp: false,
+        projectScopeDown: false,
+      },
+    });
+    return data.QueryResult.Results;
+  };
+
+  getDefectsOfTestCase = async (refLink: string) => {
+    const { data } = await this.client.get<{
+      QueryResult: {
+        Errors: any[];
+        Warnings: any[];
+        Results: { _ref: string }[];
       };
     }>(refLink, {
       baseURL: undefined,

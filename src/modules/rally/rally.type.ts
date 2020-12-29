@@ -96,7 +96,7 @@ export interface Artifact {
     Count: number;
   };
   DefectStatus?: any;
-  Defects: {
+  Defects?: {
     _ref: string;
     Count: number;
   };

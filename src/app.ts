@@ -329,6 +329,83 @@ class App {
     return issues;
   };
 
+  migrateRallyTestCasesToJiraTasks = async (input: {
+    rallyArtifacts: Artifact[];
+    jiraMigrationConfig: JiraMigrationConfig;
+  }) => {
+    const { rallyArtifacts, jiraMigrationConfig } = input;
+    if (!rallyArtifacts || !rallyArtifacts.length) {
+      return [];
+    }
+
+    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+      rallyArtifacts.map((artifact) => ({
+        fields: {
+          summary: artifact.Name,
+          issuetype: { id: jiraMigrationConfig.issueTypeByName["Task"] },
+          project: { id: jiraMigrationConfig.projectId },
+          description: {
+            type: "doc",
+            version: 1,
+            content: [
+              {
+                type: "paragraph",
+                content: [{ text: artifact.Description, type: "text" }],
+              },
+            ],
+          },
+          labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
+            tag.Name.replace(" ", "")
+          ),
+        },
+      }))
+    );
+    if (errors && errors.length) {
+      throw new Error(JSON.stringify(errors));
+    }
+    rallyArtifacts.forEach((item, itemIndex) => {
+      this.jiraIssueByRallyArtifactRef[item._ref] = issues[itemIndex];
+    });
+
+    const rallyTestCasesInDefect = rallyArtifacts.filter(
+      (defect) => defect.Defects?.Count
+    );
+    await this.createLinksForTestCaseAndDefect(rallyTestCasesInDefect);
+
+    return issues;
+  };
+
+  createLinksForTestCaseAndDefect = async (testCases: Artifact[]) => {
+    if (!testCases || !testCases.length) {
+      return;
+    }
+    const arrayOfDefectList = await Promise.all(
+      testCases.map((defect) =>
+        this.rallyService.getDefectsOfTestCase(defect.Defects?._ref)
+      )
+    );
+    await Promise.all(
+      arrayOfDefectList.map((list, listIndex) =>
+        Promise.all(
+          list.map((item) =>
+            this.jiraService.createIssueLink({
+              inwardIssue: {
+                key: this.jiraIssueByRallyArtifactRef[testCases[listIndex]._ref]
+                  .key,
+              },
+              outwardIssue: {
+                key: this.jiraIssueByRallyArtifactRef[item._ref].key,
+              },
+              type: {
+                name: "Relates",
+              },
+            })
+          )
+        )
+      )
+    );
+  };
+
   run = async () => {
     await this.jiraService.cleanUpProjects();
     const { id: jiraProjectId } = await this.migrateProject();
@@ -360,6 +437,10 @@ class App {
     });
     await this.migrateRallyTasksToJiraSubtasks({
       rallyArtifacts: classifiedRallyArtifacts.tasks,
+      jiraMigrationConfig,
+    });
+    await this.migrateRallyTestCasesToJiraTasks({
+      rallyArtifacts: classifiedRallyArtifacts.testCases,
       jiraMigrationConfig,
     });
   };
