@@ -1,5 +1,6 @@
 import _ from "lodash";
-import { customAlphabet } from "nanoid";
+import TurndownService from "turndown";
+import { Logger } from "pino";
 
 import { Artifact, RallyService } from "./modules/rally";
 import { JiraService } from "./modules/jira";
@@ -9,20 +10,33 @@ type JiraIssueByRallyArtifactRef = Record<
   { id: string; key: string; self: string }
 >;
 
-interface JiraMigrationConfig {
+interface JiraProjectConfig {
   projectId: string;
   issueTypeByName: { [name: string]: string };
   issueFieldByName: { [name: string]: string };
 }
 
-class App {
+interface AppOptions {
+  logger: Logger;
+  idGenerator: () => string;
+  turndownService: TurndownService;
   jiraService: JiraService;
   rallyService: RallyService;
-  idGenerator = customAlphabet("1234567890", 7);
-  jiraIssueByRallyArtifactRef: JiraIssueByRallyArtifactRef = {};
-  jiraMigrationConfig: JiraMigrationConfig;
+}
 
-  constructor(opts: { jiraService: JiraService; rallyService: RallyService }) {
+class App implements AppOptions {
+  logger: Logger;
+  jiraService: JiraService;
+  rallyService: RallyService;
+  idGenerator: () => string;
+  turndownService: TurndownService;
+  jiraIssueByRallyArtifactRef: JiraIssueByRallyArtifactRef = {};
+  jiraProjectConfig: JiraProjectConfig;
+
+  constructor(opts: AppOptions) {
+    this.logger = opts.logger;
+    this.idGenerator = opts.idGenerator;
+    this.turndownService = opts.turndownService;
     this.jiraService = opts.jiraService;
     this.rallyService = opts.rallyService;
   }
@@ -41,7 +55,7 @@ class App {
       this.jiraService.getIssueTypesByProjectId(jiraProjectId),
       this.jiraService.getIssueFields(),
     ]);
-    const jiraMigrationConfig: JiraMigrationConfig = {
+    const jiraMigrationConfig: JiraProjectConfig = {
       projectId: jiraProjectId,
       issueTypeByName: _.chain(jiraIssueTypes)
         .keyBy((item) => item.name)
@@ -59,22 +73,13 @@ class App {
     if (!artifacts || !artifacts.length) {
       return [];
     }
-    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+    const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
       artifacts.map((artifact) => ({
         fields: {
           summary: artifact.Name,
-          issuetype: { id: this.jiraMigrationConfig.issueTypeByName["Epic"] },
-          project: { id: this.jiraMigrationConfig.projectId },
-          description: {
-            type: "doc",
-            version: 1,
-            content: [
-              {
-                type: "paragraph",
-                content: [{ text: artifact.Description, type: "text" }],
-              },
-            ],
-          },
+          issuetype: { id: this.jiraProjectConfig.issueTypeByName["Epic"] },
+          project: { id: this.jiraProjectConfig.projectId },
+          description: this.turndownService.turndown(artifact.Description),
           labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
             tag.Name.replace(" ", "")
           ),
@@ -94,22 +99,13 @@ class App {
     if (!artifacts || !artifacts.length) {
       return [];
     }
-    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+    const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
       artifacts.map((artifact) => ({
         fields: {
           summary: artifact.Name,
-          issuetype: { id: this.jiraMigrationConfig.issueTypeByName["Bug"] },
-          project: { id: this.jiraMigrationConfig.projectId },
-          description: {
-            type: "doc",
-            version: 1,
-            content: [
-              {
-                type: "paragraph",
-                content: [{ text: artifact.Description, type: "text" }],
-              },
-            ],
-          },
+          issuetype: { id: this.jiraProjectConfig.issueTypeByName["Bug"] },
+          project: { id: this.jiraProjectConfig.projectId },
+          description: this.turndownService.turndown(artifact.Description),
           labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
             tag.Name.replace(" ", "")
           ),
@@ -130,22 +126,13 @@ class App {
       return [];
     }
 
-    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+    const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
       artifacts.map((artifact) => ({
         fields: {
           summary: artifact.Name,
-          issuetype: { id: this.jiraMigrationConfig.issueTypeByName["Bug"] },
-          project: { id: this.jiraMigrationConfig.projectId },
-          description: {
-            type: "doc",
-            version: 1,
-            content: [
-              {
-                type: "paragraph",
-                content: [{ text: artifact.Description, type: "text" }],
-              },
-            ],
-          },
+          issuetype: { id: this.jiraProjectConfig.issueTypeByName["Bug"] },
+          project: { id: this.jiraProjectConfig.projectId },
+          description: this.turndownService.turndown(artifact.Description),
           labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
             tag.Name.replace(" ", "")
           ),
@@ -193,9 +180,7 @@ class App {
               outwardIssue: {
                 key: this.jiraIssueByRallyArtifactRef[item._ref].key,
               },
-              type: {
-                name: "Blocks",
-              },
+              type: { name: "Blocks" },
             })
           )
         )
@@ -217,9 +202,7 @@ class App {
             key: this.jiraIssueByRallyArtifactRef[artifact.Requirement._ref]
               .key,
           },
-          type: {
-            name: "Blocks",
-          },
+          type: { name: "Blocks" },
         })
       )
     );
@@ -229,22 +212,13 @@ class App {
     if (!artifacts || !artifacts.length) {
       return [];
     }
-    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+    const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
       artifacts.map((artifact) => ({
         fields: {
           summary: artifact.Name,
-          issuetype: { id: this.jiraMigrationConfig.issueTypeByName["Story"] },
-          project: { id: this.jiraMigrationConfig.projectId },
-          description: {
-            type: "doc",
-            version: 1,
-            content: [
-              {
-                type: "paragraph",
-                content: [{ text: artifact.Description, type: "text" }],
-              },
-            ],
-          },
+          issuetype: { id: this.jiraProjectConfig.issueTypeByName["Story"] },
+          project: { id: this.jiraProjectConfig.projectId },
+          description: this.turndownService.turndown(artifact.Description),
           labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
             tag.Name.replace(" ", "")
           ),
@@ -270,24 +244,15 @@ class App {
     if (!artifacts || !artifacts.length) {
       return [];
     }
-    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+    const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
       artifacts.map((artifact) => ({
         fields: {
           summary: artifact.Name,
           issuetype: {
-            id: this.jiraMigrationConfig.issueTypeByName["Subtask"],
+            id: this.jiraProjectConfig.issueTypeByName["Subtask"],
           },
-          project: { id: this.jiraMigrationConfig.projectId },
-          description: {
-            type: "doc",
-            version: 1,
-            content: [
-              {
-                type: "paragraph",
-                content: [{ text: artifact.Description, type: "text" }],
-              },
-            ],
-          },
+          project: { id: this.jiraProjectConfig.projectId },
+          description: this.turndownService.turndown(artifact.Description),
           labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
             tag.Name.replace(" ", "")
           ),
@@ -316,22 +281,13 @@ class App {
       return [];
     }
 
-    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+    const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
       artifacts.map((artifact) => ({
         fields: {
           summary: artifact.Name,
-          issuetype: { id: this.jiraMigrationConfig.issueTypeByName["Task"] },
-          project: { id: this.jiraMigrationConfig.projectId },
-          description: {
-            type: "doc",
-            version: 1,
-            content: [
-              {
-                type: "paragraph",
-                content: [{ text: artifact.Description, type: "text" }],
-              },
-            ],
-          },
+          issuetype: { id: this.jiraProjectConfig.issueTypeByName["Task"] },
+          project: { id: this.jiraProjectConfig.projectId },
+          description: this.turndownService.turndown(artifact.Description),
           labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
             tag.Name.replace(" ", "")
           ),
@@ -374,9 +330,7 @@ class App {
               outwardIssue: {
                 key: this.jiraIssueByRallyArtifactRef[item._ref].key,
               },
-              type: {
-                name: "Relates",
-              },
+              type: { name: "Relates" },
             })
           )
         )
@@ -385,29 +339,48 @@ class App {
   };
 
   run = async () => {
+    this.logger.info("Clean up Jira projects");
     await this.jiraService.cleanUpProjects();
+
+    this.logger.info("Migrate Rally project");
     const { id: jiraProjectId } = await this.migrateProject();
     const jiraProjectIdInString = jiraProjectId.toString();
-    this.jiraMigrationConfig = await this.buildJiraMigrationConfig(
+    this.jiraProjectConfig = await this.buildJiraMigrationConfig(
       jiraProjectIdInString
     );
 
+    this.logger.info("Scan Rally artifacts");
     const rallyArtifacts = await this.rallyService.scanArtifact();
     const classifiedRallyArtifacts = this.rallyService.classifyArtifacts(
       rallyArtifacts
     );
 
+    this.logger.info("Migrate Rally epics");
     await this.migrateRallyEpicsToJiraEpics(classifiedRallyArtifacts.epics);
+
+    this.logger.info("Migrate Rally defect suites");
     await this.migrateRallyDefectSuitesToJiraBugs(
       classifiedRallyArtifacts.defectSuites
     );
+
+    this.logger.info("Migrate Rally stories");
     await this.migrateRallyStoriesToJiraStories(
       classifiedRallyArtifacts.stories
     );
+
+    this.logger.info("Migrate Rally defects");
     await this.migrateRallyDefectsToJiraBugs(classifiedRallyArtifacts.defects);
+
+    this.logger.info("Migrate Rally tasks");
     await this.migrateRallyTasksToJiraSubtasks(classifiedRallyArtifacts.tasks);
+
+    this.logger.info("Migrate Rally test cases");
     await this.migrateRallyTestCasesToJiraTasks(
       classifiedRallyArtifacts.testCases
+    );
+
+    this.logger.info(
+      `Done. ${rallyArtifacts.length} artifact(s) have been migrated`
     );
   };
 }

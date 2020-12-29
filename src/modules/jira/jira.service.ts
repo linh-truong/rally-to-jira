@@ -39,17 +39,7 @@ interface CreateIssueInput {
     project: {
       id: string;
     };
-    description: {
-      type: string;
-      version: number;
-      content: {
-        type: string;
-        content: {
-          text: string;
-          type: string;
-        }[];
-      }[];
-    };
+    description: string;
     labels: string[];
     [field: string]: any;
   };
@@ -62,7 +52,7 @@ export interface BulkCreateIssueOutput {
     id: string;
     key: string;
     self: string;
-    transition: {
+    transition?: {
       status: number;
       errorCollection: {
         errorMessages: any[];
@@ -86,7 +76,7 @@ export class JiraService {
   constructor(options: { jiraConfig: JiraConfig }) {
     this.jiraConfig = options.jiraConfig;
     this.client = axios.create({
-      baseURL: this.jiraConfig.apiBaseURL,
+      baseURL: `${this.jiraConfig.apiBaseURL}/3`,
       auth: {
         username: this.jiraConfig.username,
         password: this.jiraConfig.apiToken,
@@ -157,7 +147,7 @@ export class JiraService {
     return data;
   };
 
-  bulkCreateIssue = async (input: BulkCreateIssueInput) => {
+  bulkCreateIssueWithApiV2 = async (input: BulkCreateIssueInput) => {
     const { data } = await this.client.post<BulkCreateIssueOutput>(
       "issue/bulk",
       {
@@ -165,7 +155,8 @@ export class JiraService {
           ...item,
           update: {},
         })),
-      }
+      },
+      { baseURL: `${this.jiraConfig.apiBaseURL}/2` }
     );
     return data;
   };
