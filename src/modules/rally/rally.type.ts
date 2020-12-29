@@ -136,6 +136,7 @@ export interface Artifact {
     _ref: string;
   };
   DefectSuites?: {
+    _ref: string;
     Count: number;
   };
   _type: string;

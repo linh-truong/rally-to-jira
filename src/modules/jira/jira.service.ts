@@ -73,6 +73,12 @@ export interface BulkCreateIssueOutput {
   errors: any[];
 }
 
+export interface CreateIssueLinkInput {
+  outwardIssue: { key: string };
+  inwardIssue: { key: string };
+  type: { name: string };
+}
+
 export class JiraService {
   jiraConfig: JiraConfig;
   client: AxiosInstance;
@@ -161,6 +167,11 @@ export class JiraService {
         })),
       }
     );
+    return data;
+  };
+
+  createIssueLink = async (input: CreateIssueLinkInput) => {
+    const { data } = await this.client.post("issueLink", input);
     return data;
   };
 }
