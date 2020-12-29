@@ -20,6 +20,7 @@ class App {
   rallyService: RallyService;
   idGenerator = customAlphabet("1234567890", 7);
   jiraIssueByRallyArtifactRef: JiraIssueByRallyArtifactRef = {};
+  jiraMigrationConfig: JiraMigrationConfig;
 
   constructor(opts: { jiraService: JiraService; rallyService: RallyService }) {
     this.jiraService = opts.jiraService;
@@ -54,20 +55,16 @@ class App {
     return jiraMigrationConfig;
   };
 
-  migrateRallyEpicsToJiraEpics = async (input: {
-    rallyArtifacts: Artifact[];
-    jiraMigrationConfig: JiraMigrationConfig;
-  }) => {
-    const { rallyArtifacts, jiraMigrationConfig } = input;
-    if (!rallyArtifacts || !rallyArtifacts.length) {
+  migrateRallyEpicsToJiraEpics = async (artifacts: Artifact[]) => {
+    if (!artifacts || !artifacts.length) {
       return [];
     }
     const { errors, issues } = await this.jiraService.bulkCreateIssue(
-      rallyArtifacts.map((artifact) => ({
+      artifacts.map((artifact) => ({
         fields: {
           summary: artifact.Name,
-          issuetype: { id: jiraMigrationConfig.issueTypeByName["Epic"] },
-          project: { id: jiraMigrationConfig.projectId },
+          issuetype: { id: this.jiraMigrationConfig.issueTypeByName["Epic"] },
+          project: { id: this.jiraMigrationConfig.projectId },
           description: {
             type: "doc",
             version: 1,
@@ -87,26 +84,22 @@ class App {
     if (errors && errors.length) {
       throw new Error(JSON.stringify(errors));
     }
-    rallyArtifacts.forEach((item, itemIndex) => {
+    artifacts.forEach((item, itemIndex) => {
       this.jiraIssueByRallyArtifactRef[item._ref] = issues[itemIndex];
     });
     return issues;
   };
 
-  migrateRallyDefectSuitesToJiraBugs = async (input: {
-    rallyArtifacts: Artifact[];
-    jiraMigrationConfig: JiraMigrationConfig;
-  }) => {
-    const { rallyArtifacts, jiraMigrationConfig } = input;
-    if (!rallyArtifacts || !rallyArtifacts.length) {
+  migrateRallyDefectSuitesToJiraBugs = async (artifacts: Artifact[]) => {
+    if (!artifacts || !artifacts.length) {
       return [];
     }
     const { errors, issues } = await this.jiraService.bulkCreateIssue(
-      rallyArtifacts.map((artifact) => ({
+      artifacts.map((artifact) => ({
         fields: {
           summary: artifact.Name,
-          issuetype: { id: jiraMigrationConfig.issueTypeByName["Bug"] },
-          project: { id: jiraMigrationConfig.projectId },
+          issuetype: { id: this.jiraMigrationConfig.issueTypeByName["Bug"] },
+          project: { id: this.jiraMigrationConfig.projectId },
           description: {
             type: "doc",
             version: 1,
@@ -126,27 +119,23 @@ class App {
     if (errors && errors.length) {
       throw new Error(JSON.stringify(errors));
     }
-    rallyArtifacts.forEach((item, itemIndex) => {
+    artifacts.forEach((item, itemIndex) => {
       this.jiraIssueByRallyArtifactRef[item._ref] = issues[itemIndex];
     });
     return issues;
   };
 
-  migrateRallyDefectsToJiraBugs = async (input: {
-    rallyArtifacts: Artifact[];
-    jiraMigrationConfig: JiraMigrationConfig;
-  }) => {
-    const { rallyArtifacts, jiraMigrationConfig } = input;
-    if (!rallyArtifacts || !rallyArtifacts.length) {
+  migrateRallyDefectsToJiraBugs = async (artifacts: Artifact[]) => {
+    if (!artifacts || !artifacts.length) {
       return [];
     }
 
     const { errors, issues } = await this.jiraService.bulkCreateIssue(
-      rallyArtifacts.map((artifact) => ({
+      artifacts.map((artifact) => ({
         fields: {
           summary: artifact.Name,
-          issuetype: { id: jiraMigrationConfig.issueTypeByName["Bug"] },
-          project: { id: jiraMigrationConfig.projectId },
+          issuetype: { id: this.jiraMigrationConfig.issueTypeByName["Bug"] },
+          project: { id: this.jiraMigrationConfig.projectId },
           description: {
             type: "doc",
             version: 1,
@@ -166,16 +155,16 @@ class App {
     if (errors && errors.length) {
       throw new Error(JSON.stringify(errors));
     }
-    rallyArtifacts.forEach((item, itemIndex) => {
+    artifacts.forEach((item, itemIndex) => {
       this.jiraIssueByRallyArtifactRef[item._ref] = issues[itemIndex];
     });
 
-    const rallyDefectsInDefectSuite = rallyArtifacts.filter(
+    const rallyDefectsInDefectSuite = artifacts.filter(
       (defect) => defect.DefectSuites?.Count
     );
     await this.createLinksForDefectAndDefectSuite(rallyDefectsInDefectSuite);
 
-    const rallyDefectsInStory = rallyArtifacts.filter(
+    const rallyDefectsInStory = artifacts.filter(
       (defect) => defect.Requirement?._ref
     );
     await this.createLinksForDefectAndStory(rallyDefectsInStory);
@@ -183,13 +172,13 @@ class App {
     return issues;
   };
 
-  createLinksForDefectAndDefectSuite = async (defects: Artifact[]) => {
-    if (!defects || !defects.length) {
+  createLinksForDefectAndDefectSuite = async (artifacts: Artifact[]) => {
+    if (!artifacts || !artifacts.length) {
       return;
     }
     const defectSuitesList = await Promise.all(
-      defects.map((defect) =>
-        this.rallyService.getDefectSuitesOfDefect(defect.DefectSuites?._ref)
+      artifacts.map((artifact) =>
+        this.rallyService.getDefectSuitesOfDefect(artifact.DefectSuites?._ref)
       )
     );
     await Promise.all(
@@ -198,7 +187,7 @@ class App {
           list.map((item) =>
             this.jiraService.createIssueLink({
               inwardIssue: {
-                key: this.jiraIssueByRallyArtifactRef[defects[listIndex]._ref]
+                key: this.jiraIssueByRallyArtifactRef[artifacts[listIndex]._ref]
                   .key,
               },
               outwardIssue: {
@@ -214,18 +203,19 @@ class App {
     );
   };
 
-  createLinksForDefectAndStory = async (defects: Artifact[]) => {
-    if (!defects || !defects.length) {
+  createLinksForDefectAndStory = async (artifacts: Artifact[]) => {
+    if (!artifacts || !artifacts.length) {
       return;
     }
     await Promise.all(
-      defects.map((defect) =>
+      artifacts.map((artifact) =>
         this.jiraService.createIssueLink({
           inwardIssue: {
-            key: this.jiraIssueByRallyArtifactRef[defect._ref].key,
+            key: this.jiraIssueByRallyArtifactRef[artifact._ref].key,
           },
           outwardIssue: {
-            key: this.jiraIssueByRallyArtifactRef[defect.Requirement._ref].key,
+            key: this.jiraIssueByRallyArtifactRef[artifact.Requirement._ref]
+              .key,
           },
           type: {
             name: "Blocks",
@@ -235,20 +225,16 @@ class App {
     );
   };
 
-  migrateRallyStoriesToJiraStories = async (input: {
-    rallyArtifacts: Artifact[];
-    jiraMigrationConfig: JiraMigrationConfig;
-  }) => {
-    const { rallyArtifacts, jiraMigrationConfig } = input;
-    if (!rallyArtifacts || !rallyArtifacts.length) {
+  migrateRallyStoriesToJiraStories = async (artifacts: Artifact[]) => {
+    if (!artifacts || !artifacts.length) {
       return [];
     }
     const { errors, issues } = await this.jiraService.bulkCreateIssue(
-      rallyArtifacts.map((artifact) => ({
+      artifacts.map((artifact) => ({
         fields: {
           summary: artifact.Name,
-          issuetype: { id: jiraMigrationConfig.issueTypeByName["Story"] },
-          project: { id: jiraMigrationConfig.projectId },
+          issuetype: { id: this.jiraMigrationConfig.issueTypeByName["Story"] },
+          project: { id: this.jiraMigrationConfig.projectId },
           description: {
             type: "doc",
             version: 1,
@@ -274,28 +260,24 @@ class App {
     if (errors && errors.length) {
       throw new Error(JSON.stringify(errors));
     }
-    rallyArtifacts.forEach((item, itemIndex) => {
+    artifacts.forEach((item, itemIndex) => {
       this.jiraIssueByRallyArtifactRef[item._ref] = issues[itemIndex];
     });
     return issues;
   };
 
-  migrateRallyTasksToJiraSubtasks = async (input: {
-    rallyArtifacts: Artifact[];
-    jiraMigrationConfig: JiraMigrationConfig;
-  }) => {
-    const { rallyArtifacts, jiraMigrationConfig } = input;
-    if (!rallyArtifacts || !rallyArtifacts.length) {
+  migrateRallyTasksToJiraSubtasks = async (artifacts: Artifact[]) => {
+    if (!artifacts || !artifacts.length) {
       return [];
     }
     const { errors, issues } = await this.jiraService.bulkCreateIssue(
-      rallyArtifacts.map((artifact) => ({
+      artifacts.map((artifact) => ({
         fields: {
           summary: artifact.Name,
           issuetype: {
-            id: jiraMigrationConfig.issueTypeByName["Subtask"],
+            id: this.jiraMigrationConfig.issueTypeByName["Subtask"],
           },
-          project: { id: jiraMigrationConfig.projectId },
+          project: { id: this.jiraMigrationConfig.projectId },
           description: {
             type: "doc",
             version: 1,
@@ -323,27 +305,23 @@ class App {
     if (errors && errors.length) {
       throw new Error(JSON.stringify(errors));
     }
-    rallyArtifacts.forEach((item, itemIndex) => {
+    artifacts.forEach((item, itemIndex) => {
       this.jiraIssueByRallyArtifactRef[item._ref] = issues[itemIndex];
     });
     return issues;
   };
 
-  migrateRallyTestCasesToJiraTasks = async (input: {
-    rallyArtifacts: Artifact[];
-    jiraMigrationConfig: JiraMigrationConfig;
-  }) => {
-    const { rallyArtifacts, jiraMigrationConfig } = input;
-    if (!rallyArtifacts || !rallyArtifacts.length) {
+  migrateRallyTestCasesToJiraTasks = async (artifacts: Artifact[]) => {
+    if (!artifacts || !artifacts.length) {
       return [];
     }
 
     const { errors, issues } = await this.jiraService.bulkCreateIssue(
-      rallyArtifacts.map((artifact) => ({
+      artifacts.map((artifact) => ({
         fields: {
           summary: artifact.Name,
-          issuetype: { id: jiraMigrationConfig.issueTypeByName["Task"] },
-          project: { id: jiraMigrationConfig.projectId },
+          issuetype: { id: this.jiraMigrationConfig.issueTypeByName["Task"] },
+          project: { id: this.jiraMigrationConfig.projectId },
           description: {
             type: "doc",
             version: 1,
@@ -363,11 +341,11 @@ class App {
     if (errors && errors.length) {
       throw new Error(JSON.stringify(errors));
     }
-    rallyArtifacts.forEach((item, itemIndex) => {
+    artifacts.forEach((item, itemIndex) => {
       this.jiraIssueByRallyArtifactRef[item._ref] = issues[itemIndex];
     });
 
-    const rallyTestCasesInDefect = rallyArtifacts.filter(
+    const rallyTestCasesInDefect = artifacts.filter(
       (defect) => defect.Defects?.Count
     );
     await this.createLinksForTestCaseAndDefect(rallyTestCasesInDefect);
@@ -375,13 +353,13 @@ class App {
     return issues;
   };
 
-  createLinksForTestCaseAndDefect = async (testCases: Artifact[]) => {
-    if (!testCases || !testCases.length) {
+  createLinksForTestCaseAndDefect = async (artifacts: Artifact[]) => {
+    if (!artifacts || !artifacts.length) {
       return;
     }
     const arrayOfDefectList = await Promise.all(
-      testCases.map((defect) =>
-        this.rallyService.getDefectsOfTestCase(defect.Defects?._ref)
+      artifacts.map((artifact) =>
+        this.rallyService.getDefectsOfTestCase(artifact.Defects?._ref)
       )
     );
     await Promise.all(
@@ -390,7 +368,7 @@ class App {
           list.map((item) =>
             this.jiraService.createIssueLink({
               inwardIssue: {
-                key: this.jiraIssueByRallyArtifactRef[testCases[listIndex]._ref]
+                key: this.jiraIssueByRallyArtifactRef[artifacts[listIndex]._ref]
                   .key,
               },
               outwardIssue: {
@@ -410,7 +388,7 @@ class App {
     await this.jiraService.cleanUpProjects();
     const { id: jiraProjectId } = await this.migrateProject();
     const jiraProjectIdInString = jiraProjectId.toString();
-    const jiraMigrationConfig = await this.buildJiraMigrationConfig(
+    this.jiraMigrationConfig = await this.buildJiraMigrationConfig(
       jiraProjectIdInString
     );
 
@@ -419,30 +397,18 @@ class App {
       rallyArtifacts
     );
 
-    await this.migrateRallyEpicsToJiraEpics({
-      rallyArtifacts: classifiedRallyArtifacts.epics,
-      jiraMigrationConfig,
-    });
-    await this.migrateRallyDefectSuitesToJiraBugs({
-      rallyArtifacts: classifiedRallyArtifacts.defectSuites,
-      jiraMigrationConfig,
-    });
-    await this.migrateRallyStoriesToJiraStories({
-      rallyArtifacts: classifiedRallyArtifacts.stories,
-      jiraMigrationConfig,
-    });
-    await this.migrateRallyDefectsToJiraBugs({
-      rallyArtifacts: classifiedRallyArtifacts.defects,
-      jiraMigrationConfig,
-    });
-    await this.migrateRallyTasksToJiraSubtasks({
-      rallyArtifacts: classifiedRallyArtifacts.tasks,
-      jiraMigrationConfig,
-    });
-    await this.migrateRallyTestCasesToJiraTasks({
-      rallyArtifacts: classifiedRallyArtifacts.testCases,
-      jiraMigrationConfig,
-    });
+    await this.migrateRallyEpicsToJiraEpics(classifiedRallyArtifacts.epics);
+    await this.migrateRallyDefectSuitesToJiraBugs(
+      classifiedRallyArtifacts.defectSuites
+    );
+    await this.migrateRallyStoriesToJiraStories(
+      classifiedRallyArtifacts.stories
+    );
+    await this.migrateRallyDefectsToJiraBugs(classifiedRallyArtifacts.defects);
+    await this.migrateRallyTasksToJiraSubtasks(classifiedRallyArtifacts.tasks);
+    await this.migrateRallyTestCasesToJiraTasks(
+      classifiedRallyArtifacts.testCases
+    );
   };
 }
 
