@@ -173,36 +173,66 @@ class App {
     const rallyDefectsInDefectSuite = rallyArtifacts.filter(
       (defect) => defect.DefectSuites?.Count
     );
-    if (rallyDefectsInDefectSuite.length) {
-      const defectSuitesList = await Promise.all(
-        rallyDefectsInDefectSuite.map((record) =>
-          this.rallyService.getDefectSuitesOfDefect(record.DefectSuites?._ref)
-        )
-      );
-      await Promise.all(
-        defectSuitesList.map((list, listIndex) =>
-          Promise.all(
-            list.map((item) =>
-              this.jiraService.createIssueLink({
-                inwardIssue: {
-                  key: this.jiraIssueByRallyArtifactRef[
-                    rallyDefectsInDefectSuite[listIndex]._ref
-                  ].key,
-                },
-                outwardIssue: {
-                  key: this.jiraIssueByRallyArtifactRef[item._ref].key,
-                },
-                type: {
-                  name: "Blocks",
-                },
-              })
-            )
-          )
-        )
-      );
-    }
+    await this.createLinksForDefectAndDefectSuite(rallyDefectsInDefectSuite);
+
+    const rallyDefectsInStory = rallyArtifacts.filter(
+      (defect) => defect.Requirement?._ref
+    );
+    await this.createLinksForDefectAndStory(rallyDefectsInStory);
 
     return issues;
+  };
+
+  createLinksForDefectAndDefectSuite = async (defects: Artifact[]) => {
+    if (!defects || !defects.length) {
+      return;
+    }
+    const defectSuitesList = await Promise.all(
+      defects.map((defect) =>
+        this.rallyService.getDefectSuitesOfDefect(defect.DefectSuites?._ref)
+      )
+    );
+    await Promise.all(
+      defectSuitesList.map((list, listIndex) =>
+        Promise.all(
+          list.map((item) =>
+            this.jiraService.createIssueLink({
+              inwardIssue: {
+                key: this.jiraIssueByRallyArtifactRef[defects[listIndex]._ref]
+                  .key,
+              },
+              outwardIssue: {
+                key: this.jiraIssueByRallyArtifactRef[item._ref].key,
+              },
+              type: {
+                name: "Blocks",
+              },
+            })
+          )
+        )
+      )
+    );
+  };
+
+  createLinksForDefectAndStory = async (defects: Artifact[]) => {
+    if (!defects || !defects.length) {
+      return;
+    }
+    await Promise.all(
+      defects.map((defect) =>
+        this.jiraService.createIssueLink({
+          inwardIssue: {
+            key: this.jiraIssueByRallyArtifactRef[defect._ref].key,
+          },
+          outwardIssue: {
+            key: this.jiraIssueByRallyArtifactRef[defect.Requirement._ref].key,
+          },
+          type: {
+            name: "Blocks",
+          },
+        })
+      )
+    );
   };
 
   migrateRallyStoriesToJiraStories = async (input: {

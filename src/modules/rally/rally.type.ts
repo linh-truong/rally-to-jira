@@ -139,6 +139,9 @@ export interface Artifact {
     _ref: string;
     Count: number;
   };
+  Requirement?: {
+    _ref: string;
+  };
   _type: string;
 }
 
