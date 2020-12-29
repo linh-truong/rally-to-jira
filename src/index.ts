@@ -6,12 +6,8 @@ import container from "./container";
 const main = async () => {
   const logger = container.cradle.logger;
   try {
-    const jiraService = container.cradle.jiraService;
-    const project = await jiraService.createProject({
-      name: "Test 5",
-      key: "TEST5",
-    });
-    logger.info(project);
+    const app = container.cradle.app;
+    await app.run();
   } catch (err) {
     logger.error(err);
   }
