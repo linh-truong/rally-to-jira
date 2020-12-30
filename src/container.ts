@@ -1,6 +1,4 @@
 import { createContainer, InjectionMode, asValue, asClass } from "awilix";
-import { customAlphabet } from "nanoid";
-import TurndownService from "turndown";
 
 import { JiraConfig, JiraService } from "./modules/jira";
 import { RallyConfig, RallyService } from "./modules/rally";
@@ -10,8 +8,6 @@ import App from "./app";
 interface ICradle {
   app: App;
   logger: typeof logger;
-  idGenerator: () => string;
-  turndownService: TurndownService;
   rallyConfig: RallyConfig;
   rallyService: RallyService;
   jiraConfig: JiraConfig;
@@ -25,8 +21,6 @@ const container = createContainer<ICradle>({
 container.register({
   app: asClass(App),
   logger: asValue(logger),
-  idGenerator: asValue(customAlphabet("1234567890", 7)),
-  turndownService: asValue(new TurndownService()),
   rallyConfig: asValue({
     apiBaseURL: process.env.RALLY_API_BASE_URL,
     apiKey: process.env.RALLY_API_KEY,

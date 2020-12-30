@@ -1,6 +1,7 @@
 import _ from "lodash";
 import TurndownService from "turndown";
 import { Logger } from "pino";
+import { customAlphabet } from "nanoid";
 
 import { Artifact, RallyService } from "./modules/rally";
 import { JiraService } from "./modules/jira";
@@ -13,18 +14,16 @@ interface JiraProjectConfig {
 
 interface AppOptions {
   logger: Logger;
-  idGenerator: () => string;
-  turndownService: TurndownService;
   jiraService: JiraService;
   rallyService: RallyService;
 }
 
 class App implements AppOptions {
   logger: Logger;
-  jiraService: JiraService;
   rallyService: RallyService;
-  idGenerator: () => string;
-  turndownService: TurndownService;
+  jiraService: JiraService;
+  jiraProjectConfig: JiraProjectConfig;
+  turndownService = new TurndownService();
   jiraIssueByRallyArtifactRef: Record<
     string,
     {
@@ -33,21 +32,18 @@ class App implements AppOptions {
       self: string;
     }
   > = {};
-  jiraProjectConfig: JiraProjectConfig;
 
   constructor(opts: AppOptions) {
-    this.logger = opts.logger;
-    this.idGenerator = opts.idGenerator;
-    this.turndownService = opts.turndownService;
     this.jiraService = opts.jiraService;
     this.rallyService = opts.rallyService;
+    this.logger = opts.logger;
   }
 
   migrateRallyProject = async () => {
     const rallyProject = await this.rallyService.getProject();
     const result = await this.jiraService.createProject({
       name: `${rallyProject.Name} ${new Date().toISOString()}`,
-      key: "P" + this.idGenerator(),
+      key: "P" + customAlphabet("1234567890", 7)(),
     });
     return result;
   };
@@ -71,22 +67,45 @@ class App implements AppOptions {
     return jiraMigrationConfig;
   };
 
+  buildCreateJiraIssueInput = (data: {
+    rallyArtifact: Artifact;
+    rallyArtifactParentRef?: string;
+    jiraIssueType: string;
+  }) => {
+    const { rallyArtifact, rallyArtifactParentRef, jiraIssueType } = data;
+    return {
+      fields: {
+        summary: rallyArtifact.Name,
+        issuetype: { id: jiraIssueType },
+        project: { id: this.jiraProjectConfig.projectId },
+        description: this.turndownService.turndown(rallyArtifact.Description),
+        labels: (rallyArtifact.Tags?._tagsNameArray || []).map((tag) =>
+          tag.Name.replace(" ", "")
+        ),
+        parent:
+          rallyArtifactParentRef &&
+          this.jiraIssueByRallyArtifactRef[rallyArtifactParentRef]?.key
+            ? {
+                key: this.jiraIssueByRallyArtifactRef[rallyArtifactParentRef]
+                  ?.key,
+              }
+            : undefined,
+      },
+    };
+  };
+
   migrateRallyEpicsToJiraEpics = async (artifacts: Artifact[]) => {
     if (!artifacts || !artifacts.length) {
       return [];
     }
+    const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Epic"];
     const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
-      artifacts.map((artifact) => ({
-        fields: {
-          summary: artifact.Name,
-          issuetype: { id: this.jiraProjectConfig.issueTypeByName["Epic"] },
-          project: { id: this.jiraProjectConfig.projectId },
-          description: this.turndownService.turndown(artifact.Description),
-          labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
-            tag.Name.replace(" ", "")
-          ),
-        },
-      }))
+      artifacts.map((artifact) =>
+        this.buildCreateJiraIssueInput({
+          rallyArtifact: artifact,
+          jiraIssueType,
+        })
+      )
     );
     if (errors && errors.length) {
       throw new Error(JSON.stringify(errors));
@@ -101,18 +120,14 @@ class App implements AppOptions {
     if (!artifacts || !artifacts.length) {
       return [];
     }
+    const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Bug"];
     const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
-      artifacts.map((artifact) => ({
-        fields: {
-          summary: artifact.Name,
-          issuetype: { id: this.jiraProjectConfig.issueTypeByName["Bug"] },
-          project: { id: this.jiraProjectConfig.projectId },
-          description: this.turndownService.turndown(artifact.Description),
-          labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
-            tag.Name.replace(" ", "")
-          ),
-        },
-      }))
+      artifacts.map((artifact) =>
+        this.buildCreateJiraIssueInput({
+          rallyArtifact: artifact,
+          jiraIssueType,
+        })
+      )
     );
     if (errors && errors.length) {
       throw new Error(JSON.stringify(errors));
@@ -128,18 +143,14 @@ class App implements AppOptions {
       return [];
     }
 
+    const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Bug"];
     const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
-      artifacts.map((artifact) => ({
-        fields: {
-          summary: artifact.Name,
-          issuetype: { id: this.jiraProjectConfig.issueTypeByName["Bug"] },
-          project: { id: this.jiraProjectConfig.projectId },
-          description: this.turndownService.turndown(artifact.Description),
-          labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
-            tag.Name.replace(" ", "")
-          ),
-        },
-      }))
+      artifacts.map((artifact) =>
+        this.buildCreateJiraIssueInput({
+          rallyArtifact: artifact,
+          jiraIssueType,
+        })
+      )
     );
     if (errors && errors.length) {
       throw new Error(JSON.stringify(errors));
@@ -148,18 +159,14 @@ class App implements AppOptions {
       this.jiraIssueByRallyArtifactRef[item._ref] = issues[itemIndex];
     });
 
-    const rallyDefectsInDefectSuite = artifacts.filter(
-      (defect) => defect.DefectSuites?.Count
-    );
-    await this.createLinksForRallyDefectAndDefectSuite(
-      rallyDefectsInDefectSuite
-    );
-
-    const rallyDefectsInStory = artifacts.filter(
-      (defect) => defect.Requirement?._ref
-    );
-    await this.createLinksForRallyDefectAndStory(rallyDefectsInStory);
-
+    await Promise.all([
+      this.createLinksForRallyDefectAndDefectSuite(
+        artifacts.filter((defect) => defect.DefectSuites?.Count)
+      ),
+      this.createLinksForRallyDefectAndStory(
+        artifacts.filter((defect) => defect.Requirement?._ref)
+      ),
+    ]);
     return issues;
   };
 
@@ -216,24 +223,15 @@ class App implements AppOptions {
     if (!artifacts || !artifacts.length) {
       return [];
     }
+    const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Story"];
     const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
-      artifacts.map((artifact) => ({
-        fields: {
-          summary: artifact.Name,
-          issuetype: { id: this.jiraProjectConfig.issueTypeByName["Story"] },
-          project: { id: this.jiraProjectConfig.projectId },
-          description: this.turndownService.turndown(artifact.Description),
-          labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
-            tag.Name.replace(" ", "")
-          ),
-          parent: this.jiraIssueByRallyArtifactRef[artifact.Parent?._ref]?.key
-            ? {
-                key: this.jiraIssueByRallyArtifactRef[artifact.Parent?._ref]
-                  ?.key,
-              }
-            : undefined,
-        },
-      }))
+      artifacts.map((artifact) =>
+        this.buildCreateJiraIssueInput({
+          rallyArtifact: artifact,
+          rallyArtifactParentRef: artifact.Parent?._ref,
+          jiraIssueType,
+        })
+      )
     );
     if (errors && errors.length) {
       throw new Error(JSON.stringify(errors));
@@ -248,28 +246,15 @@ class App implements AppOptions {
     if (!artifacts || !artifacts.length) {
       return [];
     }
+    const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Subtask"];
     const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
-      artifacts.map((artifact) => ({
-        fields: {
-          summary: artifact.Name,
-          issuetype: {
-            id: this.jiraProjectConfig.issueTypeByName["Subtask"],
-          },
-          project: { id: this.jiraProjectConfig.projectId },
-          description: this.turndownService.turndown(artifact.Description),
-          labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
-            tag.Name.replace(" ", "")
-          ),
-          parent: this.jiraIssueByRallyArtifactRef[artifact.WorkProduct?._ref]
-            ?.key
-            ? {
-                key: this.jiraIssueByRallyArtifactRef[
-                  artifact.WorkProduct?._ref
-                ]?.key,
-              }
-            : undefined,
-        },
-      }))
+      artifacts.map((artifact) =>
+        this.buildCreateJiraIssueInput({
+          rallyArtifact: artifact,
+          rallyArtifactParentRef: artifact.WorkProduct?._ref,
+          jiraIssueType,
+        })
+      )
     );
     if (errors && errors.length) {
       throw new Error(JSON.stringify(errors));
@@ -284,19 +269,14 @@ class App implements AppOptions {
     if (!artifacts || !artifacts.length) {
       return [];
     }
-
+    const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Task"];
     const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
-      artifacts.map((artifact) => ({
-        fields: {
-          summary: artifact.Name,
-          issuetype: { id: this.jiraProjectConfig.issueTypeByName["Task"] },
-          project: { id: this.jiraProjectConfig.projectId },
-          description: this.turndownService.turndown(artifact.Description),
-          labels: (artifact.Tags?._tagsNameArray || []).map((tag) =>
-            tag.Name.replace(" ", "")
-          ),
-        },
-      }))
+      artifacts.map((artifact) =>
+        this.buildCreateJiraIssueInput({
+          rallyArtifact: artifact,
+          jiraIssueType,
+        })
+      )
     );
     if (errors && errors.length) {
       throw new Error(JSON.stringify(errors));
@@ -304,12 +284,9 @@ class App implements AppOptions {
     artifacts.forEach((item, itemIndex) => {
       this.jiraIssueByRallyArtifactRef[item._ref] = issues[itemIndex];
     });
-
-    const rallyTestCasesInDefect = artifacts.filter(
-      (defect) => defect.Defects?.Count
+    await this.createLinksForRallyTestCaseAndDefect(
+      artifacts.filter((defect) => defect.Defects?.Count)
     );
-    await this.createLinksForRallyTestCaseAndDefect(rallyTestCasesInDefect);
-
     return issues;
   };
 
