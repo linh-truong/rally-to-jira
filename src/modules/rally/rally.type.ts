@@ -131,7 +131,9 @@ export interface Artifact {
   DragAndDropRank: string;
   HasParent: boolean;
   InProgressDate?: any;
-  Iteration?: any;
+  Iteration?: {
+    _ref: string;
+  };
   Parent?: {
     _ref: string;
   };

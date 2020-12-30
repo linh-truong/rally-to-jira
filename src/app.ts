@@ -24,6 +24,7 @@ class App implements AppOptions {
   jiraService: JiraService;
   jiraProjectConfig: JiraProjectConfig;
   turndownService = new TurndownService();
+  jiraSprintIdByRallyIterationRef: Record<string, number> = {};
   jiraIssueByRallyArtifactRef: Record<
     string,
     {
@@ -73,7 +74,7 @@ class App implements AppOptions {
     );
     const defaultBoard = jiraBoards.values[0];
     if (!defaultBoard) {
-      return [];
+      return {};
     }
 
     const rallyIterations = await this.rallyService.scanIteration();
@@ -88,7 +89,10 @@ class App implements AppOptions {
         })
       )
     );
-    return jiraSprints;
+    rallyIterations.forEach((item, itemIndex) => {
+      this.jiraSprintIdByRallyIterationRef[item._ref] =
+        jiraSprints[itemIndex].id;
+    });
   };
 
   buildCreateJiraIssueInput = (data: {
@@ -114,6 +118,8 @@ class App implements AppOptions {
                   ?.key,
               }
             : undefined,
+        [this.jiraProjectConfig.issueFieldByName["Sprint"]]: this
+          .jiraSprintIdByRallyIterationRef[rallyArtifact.Iteration?._ref],
       },
     };
   };
@@ -379,7 +385,7 @@ class App implements AppOptions {
     );
 
     this.logger.info("Migrate Rally iterations");
-    const jiraSprints = await this.migrateRallyIteration();
+    const jiraSprintIdByRallyIterationRef = await this.migrateRallyIteration();
 
     this.logger.info("Scan Rally artifacts");
     const rallyArtifacts = await this.rallyService.scanArtifact();
