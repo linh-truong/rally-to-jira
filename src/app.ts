@@ -67,6 +67,30 @@ class App implements AppOptions {
     return jiraMigrationConfig;
   };
 
+  migrateRallyIteration = async () => {
+    const jiraBoards = await this.jiraService.getBoards(
+      this.jiraProjectConfig.projectId
+    );
+    const defaultBoard = jiraBoards.values[0];
+    if (!defaultBoard) {
+      return [];
+    }
+
+    const rallyIterations = await this.rallyService.scanIteration();
+    const jiraSprints = await Promise.all(
+      rallyIterations.map((iteration) =>
+        this.jiraService.createSprint({
+          name: iteration.Name,
+          originBoardId: defaultBoard.id,
+          goal: iteration.Notes,
+          startDate: iteration.StartDate,
+          endDate: iteration.EndDate,
+        })
+      )
+    );
+    return jiraSprints;
+  };
+
   buildCreateJiraIssueInput = (data: {
     rallyArtifact: Artifact;
     rallyArtifactParentRef?: string;
@@ -99,7 +123,7 @@ class App implements AppOptions {
       return [];
     }
     const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Epic"];
-    const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
+    const { errors, issues } = await this.jiraService.bulkCreateIssue(
       artifacts.map((artifact) =>
         this.buildCreateJiraIssueInput({
           rallyArtifact: artifact,
@@ -121,7 +145,7 @@ class App implements AppOptions {
       return [];
     }
     const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Bug"];
-    const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
+    const { errors, issues } = await this.jiraService.bulkCreateIssue(
       artifacts.map((artifact) =>
         this.buildCreateJiraIssueInput({
           rallyArtifact: artifact,
@@ -144,7 +168,7 @@ class App implements AppOptions {
     }
 
     const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Bug"];
-    const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
+    const { errors, issues } = await this.jiraService.bulkCreateIssue(
       artifacts.map((artifact) =>
         this.buildCreateJiraIssueInput({
           rallyArtifact: artifact,
@@ -224,7 +248,7 @@ class App implements AppOptions {
       return [];
     }
     const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Story"];
-    const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
+    const { errors, issues } = await this.jiraService.bulkCreateIssue(
       artifacts.map((artifact) =>
         this.buildCreateJiraIssueInput({
           rallyArtifact: artifact,
@@ -247,7 +271,7 @@ class App implements AppOptions {
       return [];
     }
     const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Subtask"];
-    const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
+    const { errors, issues } = await this.jiraService.bulkCreateIssue(
       artifacts.map((artifact) =>
         this.buildCreateJiraIssueInput({
           rallyArtifact: artifact,
@@ -270,7 +294,7 @@ class App implements AppOptions {
       return [];
     }
     const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Task"];
-    const { errors, issues } = await this.jiraService.bulkCreateIssueWithApiV2(
+    const { errors, issues } = await this.jiraService.bulkCreateIssue(
       artifacts.map((artifact) =>
         this.buildCreateJiraIssueInput({
           rallyArtifact: artifact,
@@ -353,6 +377,9 @@ class App implements AppOptions {
     this.jiraProjectConfig = await this.getJiraProjectConfig(
       jiraProjectIdInString
     );
+
+    this.logger.info("Migrate Rally iterations");
+    const jiraSprints = await this.migrateRallyIteration();
 
     this.logger.info("Scan Rally artifacts");
     const rallyArtifacts = await this.rallyService.scanArtifact();

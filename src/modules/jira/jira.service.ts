@@ -80,26 +80,37 @@ interface AddIssueAttachmentsInput {
 
 export class JiraService {
   jiraConfig: JiraConfig;
-  client: AxiosInstance;
+  restV2Client: AxiosInstance;
+  restV3Client: AxiosInstance;
+  agileClient: AxiosInstance;
 
   constructor(options: { jiraConfig: JiraConfig }) {
     this.jiraConfig = options.jiraConfig;
-    this.client = axios.create({
-      baseURL: `${this.jiraConfig.apiBaseURL}/3`,
-      auth: {
-        username: this.jiraConfig.username,
-        password: this.jiraConfig.apiToken,
-      },
+    const auth = {
+      username: this.jiraConfig.username,
+      password: this.jiraConfig.apiToken,
+    };
+    this.restV2Client = axios.create({
+      baseURL: `${this.jiraConfig.apiBaseURL}/api/2`,
+      auth,
+    });
+    this.restV3Client = axios.create({
+      baseURL: `${this.jiraConfig.apiBaseURL}/api/3`,
+      auth,
+    });
+    this.agileClient = axios.create({
+      baseURL: `${this.jiraConfig.apiBaseURL}/agile/1.0`,
+      auth,
     });
   }
 
   getAllProjects = async () => {
-    const { data } = await this.client.get<{ id: string }[]>("project");
+    const { data } = await this.restV3Client.get<{ id: string }[]>("project");
     return data;
   };
 
   createProject = async (input: CreateProjectInput) => {
-    const { data } = await this.client.post<{
+    const { data } = await this.restV3Client.post<{
       self: string;
       id: number;
       key: string;
@@ -116,7 +127,7 @@ export class JiraService {
   };
 
   deleteProject = async (projectId: string) => {
-    const { data } = await this.client.delete(`project/${projectId}`);
+    const { data } = await this.restV3Client.delete(`project/${projectId}`);
     return data;
   };
 
@@ -128,17 +139,17 @@ export class JiraService {
   };
 
   getAllWorkflowStatuses = async () => {
-    const { data } = await this.client.get<WorkflowStatus[]>("status");
+    const { data } = await this.restV3Client.get<WorkflowStatus[]>("status");
     return data;
   };
 
   getWorkflowStatusesByProjectId = async (projectId: string) => {
-    const { data } = await this.client.get<WorkflowStatus[]>("status");
+    const { data } = await this.restV3Client.get<WorkflowStatus[]>("status");
     return data.filter((item) => item.scope.project.id === projectId);
   };
 
   getIssueTypesByProjectId = async (projectId: string) => {
-    const { data } = await this.client.get<{
+    const { data } = await this.restV3Client.get<{
       projects: {
         self: string;
         id: string;
@@ -152,26 +163,25 @@ export class JiraService {
   };
 
   getIssueFields = async () => {
-    const { data } = await this.client.get<IssueField[]>("field");
+    const { data } = await this.restV3Client.get<IssueField[]>("field");
     return data;
   };
 
-  bulkCreateIssueWithApiV2 = async (input: BulkCreateIssueInput) => {
-    const { data } = await this.client.post<BulkCreateIssueOutput>(
+  bulkCreateIssue = async (input: BulkCreateIssueInput) => {
+    const { data } = await this.restV2Client.post<BulkCreateIssueOutput>(
       "issue/bulk",
       {
         issueUpdates: input.map((item) => ({
           ...item,
           update: {},
         })),
-      },
-      { baseURL: `${this.jiraConfig.apiBaseURL}/2` }
+      }
     );
     return data;
   };
 
   createIssueLink = async (input: CreateIssueLinkInput) => {
-    const { data } = await this.client.post("issueLink", input);
+    const { data } = await this.restV3Client.post("issueLink", input);
     return data;
   };
 
@@ -180,7 +190,7 @@ export class JiraService {
     input.attachments.forEach((item) => {
       form.append("file", Buffer.from(item.content, "base64"), item.filename);
     });
-    const { data } = await this.client.post(
+    const { data } = await this.restV3Client.post(
       `issue/${input.issueIdOrKey}/attachments`,
       form,
       {
@@ -192,6 +202,42 @@ export class JiraService {
         maxBodyLength: Infinity,
       }
     );
+    return data;
+  };
+
+  getBoards = async (projectKeyOrId: string) => {
+    const { data } = await this.agileClient.get<{
+      datamaxResults: number;
+      startAt: number;
+      total: number;
+      isLast: boolean;
+      values: {
+        id: number;
+        self: string;
+        name: string;
+        type: string;
+      }[];
+    }>("board", { params: { projectKeyOrId } });
+    return data;
+  };
+
+  createSprint = async (input: {
+    name: string;
+    originBoardId: number;
+    startDate?: string;
+    endDate?: string;
+    goal?: string;
+  }) => {
+    const { data } = await this.agileClient.post<{
+      id: number;
+      self: string;
+      state: string;
+      name: string;
+      originBoardId: number;
+      startDate?: string;
+      endDate?: string;
+      goal?: string;
+    }>("sprint", input);
     return data;
   };
 }
