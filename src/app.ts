@@ -5,11 +5,6 @@ import { Logger } from "pino";
 import { Artifact, RallyService } from "./modules/rally";
 import { JiraService } from "./modules/jira";
 
-type JiraIssueByRallyArtifactRef = Record<
-  string,
-  { id: string; key: string; self: string }
->;
-
 interface JiraProjectConfig {
   projectId: string;
   issueTypeByName: { [name: string]: string };
@@ -30,7 +25,14 @@ class App implements AppOptions {
   rallyService: RallyService;
   idGenerator: () => string;
   turndownService: TurndownService;
-  jiraIssueByRallyArtifactRef: JiraIssueByRallyArtifactRef = {};
+  jiraIssueByRallyArtifactRef: Record<
+    string,
+    {
+      id: string;
+      key: string;
+      self: string;
+    }
+  > = {};
   jiraProjectConfig: JiraProjectConfig;
 
   constructor(opts: AppOptions) {
@@ -41,7 +43,7 @@ class App implements AppOptions {
     this.rallyService = opts.rallyService;
   }
 
-  migrateProject = async () => {
+  migrateRallyProject = async () => {
     const rallyProject = await this.rallyService.getProject();
     const result = await this.jiraService.createProject({
       name: `${rallyProject.Name} ${new Date().toISOString()}`,
@@ -50,7 +52,7 @@ class App implements AppOptions {
     return result;
   };
 
-  buildJiraMigrationConfig = async (jiraProjectId: string) => {
+  getJiraProjectConfig = async (jiraProjectId: string) => {
     const [jiraIssueTypes, jiraIssueFields] = await Promise.all([
       this.jiraService.getIssueTypesByProjectId(jiraProjectId),
       this.jiraService.getIssueFields(),
@@ -149,17 +151,19 @@ class App implements AppOptions {
     const rallyDefectsInDefectSuite = artifacts.filter(
       (defect) => defect.DefectSuites?.Count
     );
-    await this.createLinksForDefectAndDefectSuite(rallyDefectsInDefectSuite);
+    await this.createLinksForRallyDefectAndDefectSuite(
+      rallyDefectsInDefectSuite
+    );
 
     const rallyDefectsInStory = artifacts.filter(
       (defect) => defect.Requirement?._ref
     );
-    await this.createLinksForDefectAndStory(rallyDefectsInStory);
+    await this.createLinksForRallyDefectAndStory(rallyDefectsInStory);
 
     return issues;
   };
 
-  createLinksForDefectAndDefectSuite = async (artifacts: Artifact[]) => {
+  createLinksForRallyDefectAndDefectSuite = async (artifacts: Artifact[]) => {
     if (!artifacts || !artifacts.length) {
       return;
     }
@@ -188,7 +192,7 @@ class App implements AppOptions {
     );
   };
 
-  createLinksForDefectAndStory = async (artifacts: Artifact[]) => {
+  createLinksForRallyDefectAndStory = async (artifacts: Artifact[]) => {
     if (!artifacts || !artifacts.length) {
       return;
     }
@@ -304,12 +308,12 @@ class App implements AppOptions {
     const rallyTestCasesInDefect = artifacts.filter(
       (defect) => defect.Defects?.Count
     );
-    await this.createLinksForTestCaseAndDefect(rallyTestCasesInDefect);
+    await this.createLinksForRallyTestCaseAndDefect(rallyTestCasesInDefect);
 
     return issues;
   };
 
-  createLinksForTestCaseAndDefect = async (artifacts: Artifact[]) => {
+  createLinksForRallyTestCaseAndDefect = async (artifacts: Artifact[]) => {
     if (!artifacts || !artifacts.length) {
       return;
     }
@@ -338,14 +342,38 @@ class App implements AppOptions {
     );
   };
 
+  migrateRallyArtifactAttacments = async () => {
+    const attachments = await this.rallyService.scanAttachment();
+    const attachmentsByArtifactRef = _.groupBy(
+      attachments,
+      (attachment) => attachment.Artifact._ref
+    );
+    for (const artifactRef in attachmentsByArtifactRef) {
+      const issueId = this.jiraIssueByRallyArtifactRef[artifactRef]?.id;
+      if (issueId) {
+        const artifactAttachments = attachmentsByArtifactRef[artifactRef];
+        await this.jiraService.addIssueAttachments({
+          issueIdOrKey: issueId,
+          attachments: artifactAttachments.map(
+            ({ Base64BiraryContent, Name }) => ({
+              filename: Name,
+              content: Base64BiraryContent,
+            })
+          ),
+        });
+      }
+    }
+    return attachments;
+  };
+
   run = async () => {
     this.logger.info("Clean up Jira projects");
     await this.jiraService.cleanUpProjects();
 
     this.logger.info("Migrate Rally project");
-    const { id: jiraProjectId } = await this.migrateProject();
+    const { id: jiraProjectId } = await this.migrateRallyProject();
     const jiraProjectIdInString = jiraProjectId.toString();
-    this.jiraProjectConfig = await this.buildJiraMigrationConfig(
+    this.jiraProjectConfig = await this.getJiraProjectConfig(
       jiraProjectIdInString
     );
 
@@ -378,6 +406,9 @@ class App implements AppOptions {
     await this.migrateRallyTestCasesToJiraTasks(
       classifiedRallyArtifacts.testCases
     );
+
+    this.logger.info("Migrate Rally artifact attachments");
+    await this.migrateRallyArtifactAttacments();
 
     this.logger.info(
       `Done. ${rallyArtifacts.length} artifact(s) have been migrated`

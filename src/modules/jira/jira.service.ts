@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from "axios";
+import FormData from "form-data";
 
 import {
   IssueField,
@@ -63,10 +64,18 @@ export interface BulkCreateIssueOutput {
   errors: any[];
 }
 
-export interface CreateIssueLinkInput {
+interface CreateIssueLinkInput {
   outwardIssue: { key: string };
   inwardIssue: { key: string };
   type: { name: string };
+}
+
+interface AddIssueAttachmentsInput {
+  issueIdOrKey: string;
+  attachments: {
+    content: string;
+    filename: string;
+  }[];
 }
 
 export class JiraService {
@@ -163,6 +172,26 @@ export class JiraService {
 
   createIssueLink = async (input: CreateIssueLinkInput) => {
     const { data } = await this.client.post("issueLink", input);
+    return data;
+  };
+
+  addIssueAttachments = async (input: AddIssueAttachmentsInput) => {
+    const form = new FormData();
+    input.attachments.forEach((item) => {
+      form.append("file", Buffer.from(item.content, "base64"), item.filename);
+    });
+    const { data } = await this.client.post(
+      `issue/${input.issueIdOrKey}/attachments`,
+      form,
+      {
+        headers: {
+          ...form.getHeaders(),
+          "X-Atlassian-Token": "no-check",
+        },
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+      }
+    );
     return data;
   };
 }
