@@ -1,6 +1,11 @@
 import { createContainer, InjectionMode, asValue, asClass } from "awilix";
 
-import { JiraConfig, JiraService } from "./modules/jira";
+import {
+  JiraConfig,
+  JiraAgileService,
+  JiraApiV2Service,
+  JiraApiV3Service,
+} from "./modules/jira";
 import { RallyConfig, RallyService } from "./modules/rally";
 import { logger } from "./modules/shared";
 import App from "./app";
@@ -11,7 +16,9 @@ interface ICradle {
   rallyConfig: RallyConfig;
   rallyService: RallyService;
   jiraConfig: JiraConfig;
-  jiraService: JiraService;
+  jiraApiV2Service: JiraApiV2Service;
+  jiraApiV3Service: JiraApiV3Service;
+  jiraAgileService: JiraAgileService;
 }
 
 const container = createContainer<ICradle>({
@@ -33,7 +40,9 @@ container.register({
     apiToken: process.env.JIRA_API_TOKEN,
     leadAccountId: process.env.JIRA_LEAD_ACCOUNT_ID,
   }),
-  jiraService: asClass(JiraService),
+  jiraApiV2Service: asClass(JiraApiV2Service),
+  jiraApiV3Service: asClass(JiraApiV3Service),
+  jiraAgileService: asClass(JiraAgileService),
 });
 
 export default container;

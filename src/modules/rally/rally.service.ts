@@ -7,6 +7,7 @@ import {
   FlowState,
   RallyConfig,
   Artifact,
+  Iteration,
 } from "./rally.type";
 
 interface CustomAttachment extends Attachment {
@@ -65,6 +66,14 @@ export class RallyService {
       hasMore = records.length < TotalResultCount;
     } while (hasMore);
 
+    return records;
+  };
+
+  scanIteration = async () => {
+    const records = await this.scanResource<Iteration>({
+      resourceName: "iteration",
+      fetch: true,
+    });
     return records;
   };
 

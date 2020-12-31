@@ -8,20 +8,6 @@ import {
   WorkflowStatus,
 } from "./jira.type";
 
-export const defaultWorkflowStatusNames = {
-  todo: "To do",
-  inProgress: "In Progress",
-  done: "Done",
-};
-
-export const defaultIssueTypeNames = {
-  story: "Story",
-  task: "Task",
-  bug: "Bug",
-  epic: "Epic",
-  subtask: "Subtask",
-};
-
 interface CreateProjectInput {
   name: string;
   key: string;
@@ -29,39 +15,6 @@ interface CreateProjectInput {
   assigneeType?: string;
   projectTemplateKey?: string;
   projectTypeKey?: string;
-}
-
-interface CreateIssueInput {
-  fields: {
-    summary: string;
-    issuetype: {
-      id: string;
-    };
-    project: {
-      id: string;
-    };
-    description: string;
-    labels: string[];
-    [field: string]: any;
-  };
-}
-
-type BulkCreateIssueInput = CreateIssueInput[];
-
-export interface BulkCreateIssueOutput {
-  issues: {
-    id: string;
-    key: string;
-    self: string;
-    transition?: {
-      status: number;
-      errorCollection: {
-        errorMessages: any[];
-        errors: any;
-      };
-    };
-  }[];
-  errors: any[];
 }
 
 interface CreateIssueLinkInput {
@@ -78,14 +31,14 @@ interface AddIssueAttachmentsInput {
   }[];
 }
 
-export class JiraService {
+export class JiraApiV3Service {
   jiraConfig: JiraConfig;
   client: AxiosInstance;
 
   constructor(options: { jiraConfig: JiraConfig }) {
     this.jiraConfig = options.jiraConfig;
     this.client = axios.create({
-      baseURL: `${this.jiraConfig.apiBaseURL}/3`,
+      baseURL: `${this.jiraConfig.apiBaseURL}/api/3`,
       auth: {
         username: this.jiraConfig.username,
         password: this.jiraConfig.apiToken,
@@ -153,20 +106,6 @@ export class JiraService {
 
   getIssueFields = async () => {
     const { data } = await this.client.get<IssueField[]>("field");
-    return data;
-  };
-
-  bulkCreateIssueWithApiV2 = async (input: BulkCreateIssueInput) => {
-    const { data } = await this.client.post<BulkCreateIssueOutput>(
-      "issue/bulk",
-      {
-        issueUpdates: input.map((item) => ({
-          ...item,
-          update: {},
-        })),
-      },
-      { baseURL: `${this.jiraConfig.apiBaseURL}/2` }
-    );
     return data;
   };
 

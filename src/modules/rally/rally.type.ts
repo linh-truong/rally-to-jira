@@ -48,6 +48,33 @@ export interface User {
   _refObjectName: string;
 }
 
+export interface Iteration {
+  _rallyAPIMajor: string;
+  _rallyAPIMinor: string;
+  _ref: string;
+  _refObjectUUID: string;
+  _objectVersion: string;
+  _refObjectName: string;
+  CreationDate: Date;
+  _CreatedAt: string;
+  ObjectID: number;
+  ObjectUUID: string;
+  VersionId: string;
+  CascadedToChildren: boolean;
+  EndDate: string;
+  Name: string;
+  Notes: string;
+  PlanEstimate?: any;
+  PlannedVelocity: number;
+  StartDate: string;
+  State: string;
+  SyncedWithParent: boolean;
+  TaskActualTotal?: any;
+  TaskEstimateTotal?: any;
+  TaskRemainingTotal?: any;
+  Theme: string;
+}
+
 export interface Artifact {
   _ref: string;
   _refObjectUUID: string;
@@ -104,7 +131,9 @@ export interface Artifact {
   DragAndDropRank: string;
   HasParent: boolean;
   InProgressDate?: any;
-  Iteration?: any;
+  Iteration?: {
+    _ref: string;
+  };
   Parent?: {
     _ref: string;
   };
