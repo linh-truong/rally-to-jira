@@ -4,9 +4,13 @@ import { Logger } from "pino";
 import { customAlphabet } from "nanoid";
 
 import { Artifact, RallyService } from "./modules/rally";
-import { JiraService } from "./modules/jira";
+import {
+  JiraAgileService,
+  JiraApiV2Service,
+  JiraApiV3Service,
+} from "./modules/jira";
 
-interface JiraProjectConfig {
+interface JiraProjectContext {
   projectId: string;
   issueTypeByName: { [name: string]: string };
   issueFieldByName: { [name: string]: string };
@@ -14,15 +18,19 @@ interface JiraProjectConfig {
 
 interface AppOptions {
   logger: Logger;
-  jiraService: JiraService;
   rallyService: RallyService;
+  jiraApiV2Service: JiraApiV2Service;
+  jiraApiV3Service: JiraApiV3Service;
+  jiraAgileService: JiraAgileService;
 }
 
 class App implements AppOptions {
   logger: Logger;
   rallyService: RallyService;
-  jiraService: JiraService;
-  jiraProjectConfig: JiraProjectConfig;
+  jiraApiV2Service: JiraApiV2Service;
+  jiraApiV3Service: JiraApiV3Service;
+  jiraAgileService: JiraAgileService;
+  jiraProjectContext: JiraProjectContext;
   turndownService = new TurndownService();
   jiraSprintIdByRallyIterationRef: Record<string, number> = {};
   jiraIssueByRallyArtifactRef: Record<
@@ -35,26 +43,44 @@ class App implements AppOptions {
   > = {};
 
   constructor(opts: AppOptions) {
-    this.jiraService = opts.jiraService;
+    this.jiraAgileService = opts.jiraAgileService;
+    this.jiraApiV2Service = opts.jiraApiV2Service;
+    this.jiraApiV3Service = opts.jiraApiV3Service;
     this.rallyService = opts.rallyService;
     this.logger = opts.logger;
   }
 
   migrateRallyProject = async () => {
     const rallyProject = await this.rallyService.getProject();
-    const result = await this.jiraService.createProject({
+    const { id: jiraProjectId } = await this.jiraApiV3Service.createProject({
       name: `${rallyProject.Name} ${new Date().toISOString()}`,
-      key: "P" + customAlphabet("1234567890", 7)(),
+      key: "P" + customAlphabet("1234567890", 9)(),
     });
-    return result;
+
+    const jiraProjectIdInString = jiraProjectId.toString();
+    const [jiraIssueTypes, jiraIssueFields] = await Promise.all([
+      this.jiraApiV3Service.getIssueTypesByProjectId(jiraProjectIdInString),
+      this.jiraApiV3Service.getIssueFields(),
+    ]);
+    this.jiraProjectContext = {
+      projectId: jiraProjectIdInString,
+      issueTypeByName: _.chain(jiraIssueTypes)
+        .keyBy((item) => item.name)
+        .mapValues((item) => item.id)
+        .value(),
+      issueFieldByName: _.chain(jiraIssueFields)
+        .keyBy((item) => item.name)
+        .mapValues((item) => item.id)
+        .value(),
+    };
   };
 
   getJiraProjectConfig = async (jiraProjectId: string) => {
     const [jiraIssueTypes, jiraIssueFields] = await Promise.all([
-      this.jiraService.getIssueTypesByProjectId(jiraProjectId),
-      this.jiraService.getIssueFields(),
+      this.jiraApiV3Service.getIssueTypesByProjectId(jiraProjectId),
+      this.jiraApiV3Service.getIssueFields(),
     ]);
-    const jiraMigrationConfig: JiraProjectConfig = {
+    const jiraMigrationConfig: JiraProjectContext = {
       projectId: jiraProjectId,
       issueTypeByName: _.chain(jiraIssueTypes)
         .keyBy((item) => item.name)
@@ -69,8 +95,8 @@ class App implements AppOptions {
   };
 
   migrateRallyIteration = async () => {
-    const jiraBoards = await this.jiraService.getBoards(
-      this.jiraProjectConfig.projectId
+    const jiraBoards = await this.jiraAgileService.getBoards(
+      this.jiraProjectContext.projectId
     );
     const defaultBoard = jiraBoards.values[0];
     if (!defaultBoard) {
@@ -78,21 +104,19 @@ class App implements AppOptions {
     }
 
     const rallyIterations = await this.rallyService.scanIteration();
-    const jiraSprints = await Promise.all(
-      rallyIterations.map((iteration) =>
-        this.jiraService.createSprint({
-          name: iteration.Name,
-          originBoardId: defaultBoard.id,
-          goal: iteration.Notes,
-          startDate: iteration.StartDate,
-          endDate: iteration.EndDate,
-        })
-      )
-    );
-    rallyIterations.forEach((item, itemIndex) => {
-      this.jiraSprintIdByRallyIterationRef[item._ref] =
-        jiraSprints[itemIndex].id;
-    });
+    for (const rallyIteration of _.orderBy(
+      rallyIterations,
+      ({ StartDate }) => StartDate
+    )) {
+      const jiraSprint = await this.jiraAgileService.createSprint({
+        name: rallyIteration.Name,
+        originBoardId: defaultBoard.id,
+        goal: rallyIteration.Notes,
+        startDate: rallyIteration.StartDate,
+        endDate: rallyIteration.EndDate,
+      });
+      this.jiraSprintIdByRallyIterationRef[rallyIteration._ref] = jiraSprint.id;
+    }
   };
 
   buildCreateJiraIssueInput = (data: {
@@ -105,7 +129,7 @@ class App implements AppOptions {
       fields: {
         summary: rallyArtifact.Name,
         issuetype: { id: jiraIssueType },
-        project: { id: this.jiraProjectConfig.projectId },
+        project: { id: this.jiraProjectContext.projectId },
         description: this.turndownService.turndown(rallyArtifact.Description),
         labels: (rallyArtifact.Tags?._tagsNameArray || []).map((tag) =>
           tag.Name.replace(" ", "")
@@ -118,7 +142,7 @@ class App implements AppOptions {
                   ?.key,
               }
             : undefined,
-        [this.jiraProjectConfig.issueFieldByName["Sprint"]]: this
+        [this.jiraProjectContext.issueFieldByName["Sprint"]]: this
           .jiraSprintIdByRallyIterationRef[rallyArtifact.Iteration?._ref],
       },
     };
@@ -128,8 +152,8 @@ class App implements AppOptions {
     if (!artifacts || !artifacts.length) {
       return [];
     }
-    const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Epic"];
-    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+    const jiraIssueType = this.jiraProjectContext.issueTypeByName["Epic"];
+    const { errors, issues } = await this.jiraApiV2Service.bulkCreateIssue(
       artifacts.map((artifact) =>
         this.buildCreateJiraIssueInput({
           rallyArtifact: artifact,
@@ -150,8 +174,8 @@ class App implements AppOptions {
     if (!artifacts || !artifacts.length) {
       return [];
     }
-    const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Bug"];
-    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+    const jiraIssueType = this.jiraProjectContext.issueTypeByName["Bug"];
+    const { errors, issues } = await this.jiraApiV2Service.bulkCreateIssue(
       artifacts.map((artifact) =>
         this.buildCreateJiraIssueInput({
           rallyArtifact: artifact,
@@ -173,8 +197,8 @@ class App implements AppOptions {
       return [];
     }
 
-    const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Bug"];
-    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+    const jiraIssueType = this.jiraProjectContext.issueTypeByName["Bug"];
+    const { errors, issues } = await this.jiraApiV2Service.bulkCreateIssue(
       artifacts.map((artifact) =>
         this.buildCreateJiraIssueInput({
           rallyArtifact: artifact,
@@ -213,7 +237,7 @@ class App implements AppOptions {
       defectSuitesList.map((list, listIndex) =>
         Promise.all(
           list.map((item) =>
-            this.jiraService.createIssueLink({
+            this.jiraApiV3Service.createIssueLink({
               inwardIssue: {
                 key: this.jiraIssueByRallyArtifactRef[artifacts[listIndex]._ref]
                   .key,
@@ -235,7 +259,7 @@ class App implements AppOptions {
     }
     await Promise.all(
       artifacts.map((artifact) =>
-        this.jiraService.createIssueLink({
+        this.jiraApiV3Service.createIssueLink({
           inwardIssue: {
             key: this.jiraIssueByRallyArtifactRef[artifact._ref].key,
           },
@@ -253,8 +277,8 @@ class App implements AppOptions {
     if (!artifacts || !artifacts.length) {
       return [];
     }
-    const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Story"];
-    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+    const jiraIssueType = this.jiraProjectContext.issueTypeByName["Story"];
+    const { errors, issues } = await this.jiraApiV2Service.bulkCreateIssue(
       artifacts.map((artifact) =>
         this.buildCreateJiraIssueInput({
           rallyArtifact: artifact,
@@ -276,8 +300,8 @@ class App implements AppOptions {
     if (!artifacts || !artifacts.length) {
       return [];
     }
-    const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Subtask"];
-    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+    const jiraIssueType = this.jiraProjectContext.issueTypeByName["Subtask"];
+    const { errors, issues } = await this.jiraApiV2Service.bulkCreateIssue(
       artifacts.map((artifact) =>
         this.buildCreateJiraIssueInput({
           rallyArtifact: artifact,
@@ -299,8 +323,8 @@ class App implements AppOptions {
     if (!artifacts || !artifacts.length) {
       return [];
     }
-    const jiraIssueType = this.jiraProjectConfig.issueTypeByName["Task"];
-    const { errors, issues } = await this.jiraService.bulkCreateIssue(
+    const jiraIssueType = this.jiraProjectContext.issueTypeByName["Task"];
+    const { errors, issues } = await this.jiraApiV2Service.bulkCreateIssue(
       artifacts.map((artifact) =>
         this.buildCreateJiraIssueInput({
           rallyArtifact: artifact,
@@ -333,7 +357,7 @@ class App implements AppOptions {
       arrayOfDefectList.map((list, listIndex) =>
         Promise.all(
           list.map((item) =>
-            this.jiraService.createIssueLink({
+            this.jiraApiV3Service.createIssueLink({
               inwardIssue: {
                 key: this.jiraIssueByRallyArtifactRef[artifacts[listIndex]._ref]
                   .key,
@@ -349,7 +373,7 @@ class App implements AppOptions {
     );
   };
 
-  migrateRallyArtifactAttacments = async () => {
+  migrateRallyArtifactAttachments = async () => {
     const attachments = await this.rallyService.scanAttachment();
     const attachmentsByArtifactRef = _.groupBy(
       attachments,
@@ -359,7 +383,7 @@ class App implements AppOptions {
       const issueId = this.jiraIssueByRallyArtifactRef[artifactRef]?.id;
       if (issueId) {
         const artifactAttachments = attachmentsByArtifactRef[artifactRef];
-        await this.jiraService.addIssueAttachments({
+        await this.jiraApiV3Service.addIssueAttachments({
           issueIdOrKey: issueId,
           attachments: artifactAttachments.map(
             ({ Base64BiraryContent, Name }) => ({
@@ -375,17 +399,13 @@ class App implements AppOptions {
 
   run = async () => {
     this.logger.info("Clean up Jira projects");
-    await this.jiraService.cleanUpProjects();
+    await this.jiraApiV3Service.cleanUpProjects();
 
     this.logger.info("Migrate Rally project");
-    const { id: jiraProjectId } = await this.migrateRallyProject();
-    const jiraProjectIdInString = jiraProjectId.toString();
-    this.jiraProjectConfig = await this.getJiraProjectConfig(
-      jiraProjectIdInString
-    );
+    await this.migrateRallyProject();
 
     this.logger.info("Migrate Rally iterations");
-    const jiraSprintIdByRallyIterationRef = await this.migrateRallyIteration();
+    await this.migrateRallyIteration();
 
     this.logger.info("Scan Rally artifacts");
     const rallyArtifacts = await this.rallyService.scanArtifact();
@@ -418,7 +438,7 @@ class App implements AppOptions {
     );
 
     this.logger.info("Migrate Rally artifact attachments");
-    await this.migrateRallyArtifactAttacments();
+    await this.migrateRallyArtifactAttachments();
 
     this.logger.info(
       `Done. ${rallyArtifacts.length} artifact(s) have been migrated`
