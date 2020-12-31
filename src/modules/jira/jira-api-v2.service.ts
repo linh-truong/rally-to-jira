@@ -2,20 +2,6 @@ import axios, { AxiosInstance } from "axios";
 
 import { JiraConfig } from "./jira.type";
 
-export const defaultWorkflowStatusNames = {
-  todo: "To do",
-  inProgress: "In Progress",
-  done: "Done",
-};
-
-export const defaultIssueTypeNames = {
-  story: "Story",
-  task: "Task",
-  bug: "Bug",
-  epic: "Epic",
-  subtask: "Subtask",
-};
-
 interface CreateIssueInput {
   fields: {
     summary: string;
@@ -30,8 +16,6 @@ interface CreateIssueInput {
     [field: string]: any;
   };
 }
-
-type BulkCreateIssueInput = CreateIssueInput[];
 
 export interface BulkCreateIssueOutput {
   issues: {
@@ -64,7 +48,7 @@ export class JiraApiV2Service {
     });
   }
 
-  bulkCreateIssue = async (input: BulkCreateIssueInput) => {
+  bulkCreateIssue = async (input: CreateIssueInput[]) => {
     const { data } = await this.client.post<BulkCreateIssueOutput>(
       "issue/bulk",
       {

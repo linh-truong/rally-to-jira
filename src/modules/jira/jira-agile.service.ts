@@ -52,4 +52,18 @@ export class JiraAgileService {
     }>("sprint", input);
     return data;
   };
+
+  estimateIssue = async (input: {
+    issueIdOrKey: string;
+    boardId: number;
+    value: string;
+  }) => {
+    const { issueIdOrKey, boardId, value } = input;
+    const { data } = await this.client.put(
+      `issue/${issueIdOrKey}/estimation`,
+      { value },
+      { params: { boardId } }
+    );
+    return data;
+  };
 }

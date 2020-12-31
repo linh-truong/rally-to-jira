@@ -12,6 +12,7 @@ import {
 
 interface JiraProjectContext {
   projectId: string;
+  defaultBoardId: number;
   issueTypeByName: { [name: string]: string };
   issueFieldByName: { [name: string]: string };
 }
@@ -58,12 +59,14 @@ class App implements AppOptions {
     });
 
     const jiraProjectIdInString = jiraProjectId.toString();
-    const [jiraIssueTypes, jiraIssueFields] = await Promise.all([
+    const [jiraBoards, jiraIssueTypes, jiraIssueFields] = await Promise.all([
+      this.jiraAgileService.getBoards(jiraProjectIdInString),
       this.jiraApiV3Service.getIssueTypesByProjectId(jiraProjectIdInString),
       this.jiraApiV3Service.getIssueFields(),
     ]);
     this.jiraProjectContext = {
       projectId: jiraProjectIdInString,
+      defaultBoardId: _.head(jiraBoards.values).id,
       issueTypeByName: _.chain(jiraIssueTypes)
         .keyBy((item) => item.name)
         .mapValues((item) => item.id)
@@ -73,36 +76,9 @@ class App implements AppOptions {
         .mapValues((item) => item.id)
         .value(),
     };
-  };
-
-  getJiraProjectConfig = async (jiraProjectId: string) => {
-    const [jiraIssueTypes, jiraIssueFields] = await Promise.all([
-      this.jiraApiV3Service.getIssueTypesByProjectId(jiraProjectId),
-      this.jiraApiV3Service.getIssueFields(),
-    ]);
-    const jiraMigrationConfig: JiraProjectContext = {
-      projectId: jiraProjectId,
-      issueTypeByName: _.chain(jiraIssueTypes)
-        .keyBy((item) => item.name)
-        .mapValues((item) => item.id)
-        .value(),
-      issueFieldByName: _.chain(jiraIssueFields)
-        .keyBy((item) => item.name)
-        .mapValues((item) => item.id)
-        .value(),
-    };
-    return jiraMigrationConfig;
   };
 
   migrateRallyIteration = async () => {
-    const jiraBoards = await this.jiraAgileService.getBoards(
-      this.jiraProjectContext.projectId
-    );
-    const defaultBoard = jiraBoards.values[0];
-    if (!defaultBoard) {
-      return {};
-    }
-
     const rallyIterations = await this.rallyService.scanIteration();
     for (const rallyIteration of _.orderBy(
       rallyIterations,
@@ -110,7 +86,7 @@ class App implements AppOptions {
     )) {
       const jiraSprint = await this.jiraAgileService.createSprint({
         name: rallyIteration.Name,
-        originBoardId: defaultBoard.id,
+        originBoardId: this.jiraProjectContext.defaultBoardId,
         goal: rallyIteration.Notes,
         startDate: rallyIteration.StartDate,
         endDate: rallyIteration.EndDate,
@@ -373,6 +349,20 @@ class App implements AppOptions {
     );
   };
 
+  migrateArtifactPlanEstimate = async (artifacts: Artifact[]) => {
+    return await Promise.all(
+      artifacts
+        .filter(({ PlanEstimate }) => PlanEstimate)
+        .map((artifact) =>
+          this.jiraAgileService.estimateIssue({
+            boardId: this.jiraProjectContext.defaultBoardId,
+            issueIdOrKey: this.jiraIssueByRallyArtifactRef[artifact._ref].id,
+            value: artifact.PlanEstimate.toString(),
+          })
+        )
+    );
+  };
+
   migrateRallyArtifactAttachments = async () => {
     const attachments = await this.rallyService.scanAttachment();
     const attachmentsByArtifactRef = _.groupBy(
@@ -398,8 +388,8 @@ class App implements AppOptions {
   };
 
   run = async () => {
-    this.logger.info("Clean up Jira projects");
-    await this.jiraApiV3Service.cleanUpProjects();
+    // this.logger.info("Clean up Jira projects");
+    // await this.jiraApiV3Service.cleanUpProjects();
 
     this.logger.info("Migrate Rally project");
     await this.migrateRallyProject();
@@ -436,6 +426,9 @@ class App implements AppOptions {
     await this.migrateRallyTestCasesToJiraTasks(
       classifiedRallyArtifacts.testCases
     );
+
+    this.logger.info("Migrate Rally artifact plan estimate");
+    await this.migrateArtifactPlanEstimate(rallyArtifacts);
 
     this.logger.info("Migrate Rally artifact attachments");
     await this.migrateRallyArtifactAttachments();
